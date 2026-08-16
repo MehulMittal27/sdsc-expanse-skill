@@ -41,9 +41,9 @@ Nothing secret is stored. No password, no authenticator seed.
 ### Every working session
 
 ```bash
-./scripts/expanse.sh login     # you type your password and 6-digit code
-./scripts/expanse.sh check     # should print: live
-./scripts/expanse.sh alloc     # confirms the account and shows remaining SUs
+expanse login     # you type your password and 6-digit code
+expanse check     # should print: live
+expanse alloc     # confirms the account and shows remaining SUs
 ```
 
 `login` opens one background SSH connection that stays up for 8 hours by
@@ -94,7 +94,7 @@ clone of this repo, or from your project add a pointer to your own `AGENTS.md`:
 ```markdown
 ## Running jobs on SDSC Expanse
 Read ~/expanse-agent-skill/AGENTS.md and follow it. All cluster access goes
-through ~/expanse-agent-skill/scripts/expanse.sh.
+through the `expanse` command installed by that repo's scripts/install.sh.
 ```
 
 `.agents/skills/` also works for harnesses that support it:
@@ -129,21 +129,21 @@ Per-repo overrides, if you want a checkout pinned to one project, go in
 ## 4. Verify the install
 
 ```bash
-./scripts/expanse.sh config      # resolved settings and remote paths
-./scripts/expanse.sh check       # live
-./scripts/expanse.sh alloc       # allocations
-./scripts/expanse.sh partitions  # partitions you can see
-./scripts/expanse.sh exec 'hostname; module load gpu && module list'
+./scripts/install.sh --check     # command and skill links
+./scripts/selftest.sh            # 72 offline checks, no account needed
+expanse config                   # resolved settings and remote paths
+expanse check                    # live
+expanse alloc                    # allocations
+expanse partitions               # partitions you can see
 ```
 
-Then a real end-to-end smoke test, which should finish in a few minutes on the
-debug queue:
+Then a real end-to-end smoke test on the debug queue, which costs minutes:
 
 ```bash
-cp templates/gpu-shared-v100.sbatch /tmp/smoke.sbatch
-# edit: --partition=gpu-debug, --time=00:05:00,
-#       replace the python line with: nvidia-smi
-./scripts/expanse.sh run /tmp/smoke.sbatch
+expanse launch ~/expanse-agent-skill/examples/smoke_train.py \
+    --partition gpu-debug --gpus 1 --time 00:10:00
 ```
 
-You should see a job id, a short wait, and `nvidia-smi` output naming a V100.
+You should see a job id, a short wait, a V100 named in the output, and a falling
+loss. Repeat with `--gpus 2` to prove the distributed path: two rank lines, and
+still exactly one checkpoint written.
