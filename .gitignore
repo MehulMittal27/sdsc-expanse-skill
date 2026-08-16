@@ -1,0 +1,6 @@
+# Per-checkout overrides and local state; never commit these.
+.expanse.env
+.expanse-jobs.tsv
+*.out
+*.err
+results/
