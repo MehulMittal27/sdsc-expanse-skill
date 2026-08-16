@@ -146,6 +146,24 @@ case "$out" in
   *) bad "names a setup path that does not exist" ;;
 esac
 
+section "Setup works without a terminal"
+SB="$WORK/sandbox"; mkdir -p "$SB"
+says "refuses with guidance when given no username" "not interactive" \
+     env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh"
+if env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" \
+     --user testuser --account abc123 --project selftest >/dev/null 2>&1; then
+  ok "configures non-interactively from flags"
+else
+  bad "configures non-interactively from flags"
+fi
+if grep -q '^EXPANSE_ACCOUNT=abc123$' "$SB/cfg/expanse/config.env" 2>/dev/null; then
+  ok "writes the allocation to the config"; else bad "writes the allocation to the config"; fi
+if grep -q 'ControlMaster auto' "$SB/.ssh/config" 2>/dev/null; then
+  ok "adds the connection-sharing ssh block"; else bad "adds the connection-sharing ssh block"; fi
+env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" --user testuser >/dev/null 2>&1
+if [ "$(grep -c 'Host expanse' "$SB/.ssh/config")" = 1 ]; then
+  ok "re-running does not duplicate the ssh block"; else bad "re-running duplicates the ssh block"; fi
+
 section "Connection safety"
 says "remote command refuses without a session" "no live Expanse session" \
      env XDG_CONFIG_HOME="$WORK/cfg" EXPANSE_USER=testuser "$EXP" alloc

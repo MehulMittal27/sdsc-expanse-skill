@@ -22,7 +22,14 @@ cd ~/expanse-agent-skill
 ./scripts/expanse-setup.sh    # your username and allocation
 ```
 
-It asks for:
+In a shell without a terminal (an agent, a `!` command, CI), pass the values
+instead of being prompted:
+
+```bash
+./scripts/expanse-setup.sh --user <username> --account <alloc> --project <label>
+```
+
+Interactively it asks for:
 
 - **Expanse username** - your SDSC login name.
 - **SLURM account** - the allocation charged for jobs, something like `abc123`.
