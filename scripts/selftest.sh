@@ -133,6 +133,19 @@ printf '#!/bin/bash\n#SBATCH --nodes=1\n' > "$WORK/noacct.sbatch"
 says "refuses a job with no allocation" "no #SBATCH --account" \
      env XDG_CONFIG_HOME="$WORK/cfg" EXPANSE_USER=testuser EXPANSE_ACCOUNT=abc123 "$EXP" submit "$WORK/noacct.sbatch"
 
+section "Symlink resolution (the PATH shim is a symlink)"
+SHIM="$WORK/bin/expanse"
+mkdir -p "$WORK/bin"; ln -sf "$EXP" "$SHIM"
+out=$(env XDG_CONFIG_HOME="$WORK/cfg" "$SHIM" config 2>&1)
+case "$out" in
+  *"$REPO_DIR/.expanse.env"*) ok "finds the real repo through the symlink" ;;
+  *) bad "resolves to the symlink's directory instead of the repo" ;;
+esac
+case "$out" in
+  *"$REPO_DIR/scripts/expanse-setup.sh"*) ok "names a setup path that exists" ;;
+  *) bad "names a setup path that does not exist" ;;
+esac
+
 section "Connection safety"
 says "remote command refuses without a session" "no live Expanse session" \
      env XDG_CONFIG_HOME="$WORK/cfg" EXPANSE_USER=testuser "$EXP" alloc

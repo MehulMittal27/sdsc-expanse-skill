@@ -45,7 +45,19 @@
 #   --out FILE               wrap only: write the sbatch here instead of stdout
 set -euo pipefail
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Resolve through symlinks: this script is normally reached via a PATH shim
+# (~/.local/bin/expanse), and the real repo is wherever the link points.
+# readlink -f is not portable to macOS, so walk the chain by hand.
+_resolve_dir() {
+  local src="$1" dir
+  while [ -L "$src" ]; do
+    dir=$(cd -P -- "$(dirname -- "$src")" && pwd)
+    src=$(readlink -- "$src")
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  (cd -P -- "$(dirname -- "$src")" && pwd)
+}
+SCRIPT_DIR=$(_resolve_dir "${BASH_SOURCE[0]}")
 REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 
 # --- configuration -----------------------------------------------------------
