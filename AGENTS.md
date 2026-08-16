@@ -56,6 +56,9 @@ scripts/expanse.sh logs <jobid>
    redundant copies at N times the cost. Confirm the script uses DDP, HuggingFace
    `Trainer`, `accelerate` or Lightning; if it manages GPUs itself, pass
    `--launcher none`. Over 4 GPUs means `--nodes` on an exclusive partition.
+   `wrap`/`launch` refuse the job if they cannot find distributed code in the
+   script. Never pass `--force` to silence that; convert the script instead
+   (`reference/distributed.md`) or drop to one GPU, and tell the user which.
 7. **On the H100 partitions, GPUs are `--gpus=h100:N`.** Plain `--gpus=N` is
    rejected.
 8. **Report the true outcome.** Quote the SLURM state and exit code from `sacct`,
@@ -70,5 +73,6 @@ scripts/expanse.sh logs <jobid>
 - `reference/slurm.md` - partitions, limits, hardware, charging
 - `reference/filesystems.md` - paths, quotas, purge policy, data transfer
 - `reference/software.md` - modules, conda, singularity, PyTorch, HuggingFace
+- `reference/distributed.md` - converting single-GPU training to multi-GPU
 - `reference/troubleshooting.md` - failure modes and fixes
 - `INSTALL.md` - one-time setup and per-agent installation

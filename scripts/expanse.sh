@@ -39,6 +39,7 @@
 #   --launcher NAME          auto (default) | torchrun | accelerate | srun | none
 #                            auto uses torchrun when a python script gets >1 GPU
 #   --master-port N          rendezvous port for multi-node runs (default 29500)
+#   --force                  skip the single-process safety check (rarely correct)
 #   --interpreter CMD        override the interpreter (default inferred from extension)
 #   --args "..."             arguments passed to the script
 #   --out FILE               wrap only: write the sbatch here instead of stdout
@@ -323,13 +324,13 @@ cmd_run() {
 # --- turning a plain script into a SLURM job ---------------------------------
 W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
 W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""
+W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0
 W_MODULES=(); W_WITH=()
 
 wrap_reset() {
   W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
   W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""
+  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0
   W_MODULES=(); W_WITH=()
 }
 
@@ -352,6 +353,7 @@ wrap_parse_opts() {
       --with)             W_WITH+=("${2:?--with needs a value}"); shift 2 ;;
       --interpreter)      W_INTERP="${2:?--interpreter needs a value}"; shift 2 ;;
       --launcher)         W_LAUNCH="${2:?--launcher needs a value}"; shift 2 ;;
+      --force)            W_FORCE=1; shift ;;
       --master-port)      W_PORT="${2:?--master-port needs a value}"; shift 2 ;;
       --args)             W_ARGS="${2:?--args needs a value}"; shift 2 ;;
       --out|-o)           W_OUT="${2:?--out needs a value}"; shift 2 ;;
@@ -599,6 +601,39 @@ wrap_emit() {
   printf '%s\n' 'echo "finished=$(date -Is)"'
 }
 
+# A launcher runs the script once per GPU. If the script is not written for that,
+# every GPU trains its own redundant copy and they overwrite each other's output:
+# N times the cost, no speedup, corrupted checkpoints. Refuse rather than spend
+# an allocation discovering it.
+wrap_check_distributed() {
+  case "$W_LAUNCH" in torchrun|accelerate|srun) : ;; *) return 0 ;; esac
+  [ "$W_FORCE" = 1 ] && return 0
+  [ -f "$W_SRC" ] || return 0
+  case "$W_SRC" in *.py) : ;; *) return 0 ;; esac
+  if grep -Eq 'DistributedDataParallel|torch\.distributed|init_process_group|LOCAL_RANK|[Aa]ccelerator\(|accelerate|Trainer\(|SentenceTransformerTrainer|pytorch_lightning|lightning|deepspeed|Fabric\(|FSDP|fully_sharded' "$W_SRC"; then
+    return 0
+  fi
+  cat >&2 <<EOF
+error: $(basename -- "$W_SRC") looks like single-process training code, but this job
+would start $W_GPUN process(es) per node with $W_LAUNCH.
+
+Each process runs the script top to bottom on its own GPU. Nothing coordinates
+them, so you would get $W_GPUN redundant copies of the same training run, all
+writing to the same output path. That costs $W_GPUN times as much and finishes no
+sooner.
+
+Found no sign of DDP, HuggingFace Trainer, accelerate, Lightning or DeepSpeed.
+
+Pick one:
+  - run on a single GPU:            --gpus 1
+  - the script already spreads work itself (e.g. nn.DataParallel):
+                                    --launcher none
+  - make the script distribution-aware: see reference/distributed.md
+  - you are certain this is wrong:  --force
+EOF
+  exit 1
+}
+
 cmd_wrap() {
   local src="${1:?usage: wrap <script> [options]}"; shift || true
   [ -f "$src" ] || die "no such script: $src"
@@ -606,6 +641,7 @@ cmd_wrap() {
   wrap_parse_opts "$@"
   W_SRC="$src"
   wrap_defaults
+  wrap_check_distributed
   if [ -n "$W_OUT" ]; then
     wrap_emit "$src" > "$W_OUT"
     note "wrote $W_OUT"
@@ -621,6 +657,7 @@ cmd_launch() {
   wrap_parse_opts "$@"
   W_SRC="$src"
   wrap_defaults
+  wrap_check_distributed
   require_account
   require_user
   require_master

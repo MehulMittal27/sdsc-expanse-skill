@@ -112,6 +112,13 @@ and N sets of clobbered checkpoints. It is safe as-is if you use PyTorch DDP,
 HuggingFace `Trainer`, `accelerate`, or Lightning, since all of them read
 `RANK`/`WORLD_SIZE`/`LOCAL_RANK` from the environment that `torchrun` sets.
 
+`wrap` and `launch` scan the script and **refuse** to generate a multi-process job
+when they find no sign of any of those. Do not reach for `--force` to get past it:
+either drop to `--gpus 1`, or convert the script first using
+`reference/distributed.md`. This skill does not rewrite training code
+automatically - distributed training changes what the model learns, not just how
+fast it runs.
+
 Controls:
 
 - `--launcher torchrun` (auto-selected for a python script with more than one GPU)
@@ -194,5 +201,6 @@ whole project team.
 - `reference/slurm.md` - partitions, limits, hardware, charging, sbatch directives
 - `reference/filesystems.md` - paths, quotas, purge policy, data transfer, Globus
 - `reference/software.md` - modules, conda, singularity, PyTorch and HuggingFace setup
+- `reference/distributed.md` - converting single-GPU training to multi-GPU, and when not to
 - `reference/troubleshooting.md` - failure modes and fixes
 - `INSTALL.md` - first-time setup, and installing this skill into other agents

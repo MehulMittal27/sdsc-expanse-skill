@@ -54,8 +54,10 @@ launcher is added so every GPU gets a worker:
 ```
 
 Your training script has to be distribution-aware for that (DDP, HuggingFace
-`Trainer`, `accelerate` or Lightning). Pass `--launcher none` if it manages GPUs
-itself.
+`Trainer`, `accelerate` or Lightning), and the generator refuses the job if it
+cannot find any of them in the script rather than letting you pay N times over
+for N redundant copies of the same run. `reference/distributed.md` covers the
+conversion, and when a bigger batch on one GPU is the better answer.
 
 ## What is in here
 
@@ -75,6 +77,7 @@ reference/
   slurm.md                   partitions, limits, hardware, charging, directives
   filesystems.md             paths, quotas, purge policy, data transfer, Globus
   software.md                modules, conda, singularity, PyTorch, HuggingFace
+  distributed.md             single-GPU to multi-GPU conversion, and when not to
   troubleshooting.md         failure modes and fixes
 ```
 
