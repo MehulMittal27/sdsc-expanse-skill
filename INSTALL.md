@@ -16,8 +16,8 @@ already use). Changes take up to 15 minutes to take effect.
 Then:
 
 ```bash
-git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/expanse-agent-skill
-cd ~/expanse-agent-skill
+git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/sdsc-expanse-skill
+cd ~/sdsc-expanse-skill
 ./scripts/install.sh          # expanse command on PATH + skill links
 ./scripts/expanse-setup.sh    # your username and allocation
 ```
@@ -100,14 +100,14 @@ clone of this repo, or from your project add a pointer to your own `AGENTS.md`:
 
 ```markdown
 ## Running jobs on SDSC Expanse
-Read ~/expanse-agent-skill/AGENTS.md and follow it. All cluster access goes
+Read ~/sdsc-expanse-skill/AGENTS.md and follow it. All cluster access goes
 through the `expanse` command installed by that repo's scripts/install.sh.
 ```
 
 `.agents/skills/` also works for harnesses that support it:
 
 ```bash
-mkdir -p .agents/skills && ln -s ~/expanse-agent-skill .agents/skills/sdsc-expanse
+mkdir -p .agents/skills && ln -s ~/sdsc-expanse-skill .agents/skills/sdsc-expanse
 ```
 
 ### Anything else
@@ -147,7 +147,7 @@ expanse partitions               # partitions you can see
 Then a real end-to-end smoke test on the debug queue, which costs minutes:
 
 ```bash
-expanse launch ~/expanse-agent-skill/examples/smoke_train.py \
+expanse launch ~/sdsc-expanse-skill/examples/smoke_train.py \
     --partition gpu-debug --gpus 1 --time 00:10:00
 ```
 

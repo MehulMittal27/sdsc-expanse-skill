@@ -27,8 +27,8 @@ CONFIG_FILE="$CONFIG_DIR/config.env"
 HOST=login.expanse.sdsc.edu
 CONTROL_DIR="$HOME/.ssh/cm"
 CONTROL_PATH="$CONTROL_DIR/%r@%h:%p"
-BEGIN="# >>> expanse-agent-skill >>>"
-END="# <<< expanse-agent-skill <<<"
+BEGIN="# >>> sdsc-expanse-skill >>>"
+END="# <<< sdsc-expanse-skill <<<"
 
 IN_USER=""; IN_ACCT=""; IN_PROJ=""; IN_PERSIST=""; INSTALL_KEY=0
 while [ $# -gt 0 ]; do

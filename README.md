@@ -21,8 +21,8 @@ with an instruction rather than hanging on a hidden password prompt.
 ## Quick start
 
 ```bash
-git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/expanse-agent-skill
-cd ~/expanse-agent-skill
+git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/sdsc-expanse-skill
+cd ~/sdsc-expanse-skill
 ./scripts/install.sh                # expanse command on PATH + skill links
 ./scripts/expanse-setup.sh          # your username, allocation, ssh config
 expanse login                       # once per session: password + 6-digit code
