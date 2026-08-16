@@ -88,6 +88,42 @@ Options: `--name --partition --gpus --cpus --mem --time --nodes --ntasks-per-nod
 --conda --sif --module --with --interpreter --args --out`. Run
 `scripts/expanse.sh --help` for the full list.
 
+### Multiple GPUs
+
+Just raise `--gpus`. Cores and memory scale with it, and a `torchrun` launcher is
+added automatically so every GPU actually gets a worker:
+
+```bash
+scripts/expanse.sh launch ./train.py --gpus 4 --time 06:00:00 --conda embed
+# -> 4 GPUs, 40 cores, 368G, torchrun --nproc_per_node=4
+```
+
+Across nodes, for more than 4 GPUs:
+
+```bash
+scripts/expanse.sh launch ./train.py --partition gpu --nodes 2 --gpus 4
+# -> 8 GPUs; srun + torchrun with a c10d rendezvous on the first node
+```
+
+**The script must be distribution-aware.** `torchrun` starts one process per GPU,
+each of which runs your script top to bottom. Plain single-process training code
+will run N independent copies of itself on N GPUs: N times the cost, no speedup,
+and N sets of clobbered checkpoints. It is safe as-is if you use PyTorch DDP,
+HuggingFace `Trainer`, `accelerate`, or Lightning, since all of them read
+`RANK`/`WORLD_SIZE`/`LOCAL_RANK` from the environment that `torchrun` sets.
+
+Controls:
+
+- `--launcher torchrun` (auto-selected for a python script with more than one GPU)
+- `--launcher accelerate` if you use `accelerate launch`, single node only
+- `--launcher srun` for one task per GPU without torchrun
+- `--launcher none` if your script handles its own GPUs, for example `DataParallel`
+- `--master-port N` if 29500 collides on a shared node
+
+Guards that fire before you queue: more than 4 GPUs on one node, multi-node on a
+shared partition, more than 2 GPUs on `gpu-debug`, and multi-node with
+`accelerate`.
+
 ### When you need full control
 
 For anything the generator does not cover - multi-node DDP, job arrays, MPI,

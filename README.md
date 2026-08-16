@@ -45,6 +45,18 @@ SLURM wrapper, uploads it, runs it, and shows you the log:
 `wrap` does the generation alone (`--out job.sbatch`) if you want to read or edit
 the job script before it runs.
 
+Multi-GPU is one flag. Cores and memory scale with the GPU count, and a `torchrun`
+launcher is added so every GPU gets a worker:
+
+```bash
+./scripts/expanse.sh launch ./train.py --gpus 4                       # 4 V100s, one node
+./scripts/expanse.sh launch ./train.py --partition gpu --nodes 2 --gpus 4   # 8 across two nodes
+```
+
+Your training script has to be distribution-aware for that (DDP, HuggingFace
+`Trainer`, `accelerate` or Lightning). Pass `--launcher none` if it manages GPUs
+itself.
+
 ## What is in here
 
 ```

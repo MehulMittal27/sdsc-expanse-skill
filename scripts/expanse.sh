@@ -36,6 +36,9 @@
 #   --sif IMAGE.sif          run inside a singularity image with --nv
 #   --module NAME            extra module to load (repeatable)
 #   --with PATH              extra local file/dir to upload alongside the script (repeatable)
+#   --launcher NAME          auto (default) | torchrun | accelerate | srun | none
+#                            auto uses torchrun when a python script gets >1 GPU
+#   --master-port N          rendezvous port for multi-node runs (default 29500)
 #   --interpreter CMD        override the interpreter (default inferred from extension)
 #   --args "..."             arguments passed to the script
 #   --out FILE               wrap only: write the sbatch here instead of stdout
@@ -320,13 +323,17 @@ cmd_run() {
 # --- turning a plain script into a SLURM job ---------------------------------
 W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
 W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
+W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""
 W_MODULES=(); W_WITH=()
 
 wrap_reset() {
   W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
   W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
+  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""
   W_MODULES=(); W_WITH=()
 }
+
+imin() { [ "$1" -le "$2" ] && printf '%s' "$1" || printf '%s' "$2"; }
 
 wrap_parse_opts() {
   while [ $# -gt 0 ]; do
@@ -344,6 +351,8 @@ wrap_parse_opts() {
       --module)           W_MODULES+=("${2:?--module needs a value}"); shift 2 ;;
       --with)             W_WITH+=("${2:?--with needs a value}"); shift 2 ;;
       --interpreter)      W_INTERP="${2:?--interpreter needs a value}"; shift 2 ;;
+      --launcher)         W_LAUNCH="${2:?--launcher needs a value}"; shift 2 ;;
+      --master-port)      W_PORT="${2:?--master-port needs a value}"; shift 2 ;;
       --args)             W_ARGS="${2:?--args needs a value}"; shift 2 ;;
       --out|-o)           W_OUT="${2:?--out needs a value}"; shift 2 ;;
       --)                 shift; W_ARGS="$*"; break ;;
@@ -354,26 +363,29 @@ wrap_parse_opts() {
 }
 
 # Fill in whatever the caller did not specify, using the shape of the partition.
+# Resources scale with the GPU count: asking for 4 GPUs and leaving the cores and
+# memory at a one-GPU share is the classic way to pay 4x and go no faster.
 wrap_defaults() {
   W_PART="${W_PART:-gpu-shared}"
+  W_NODES="${W_NODES:-1}"
+
+  local per_core=0 per_mem=0 max_core=0 max_mem=0 exclusive=0
   case "$W_PART" in
     gpu-shared|gpu-preempt)
-      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-92G}" ;;
-    gpu)
-      W_GPUS="${W_GPUS:-4}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-377300M}"
-      W_NTASKS="${W_NTASKS:-4}" ;;
+      W_GPUS="${W_GPUS:-1}"; per_core=10; per_mem=92;  max_core=40; max_mem=368 ;;
     gpu-debug)
-      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-92G}"
+      W_GPUS="${W_GPUS:-1}"; per_core=10; per_mem=92;  max_core=40; max_mem=368
       W_TIME="${W_TIME:-00:30:00}" ;;
     nairr-gpu-shared)
-      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-18}"; W_MEM="${W_MEM:-240G}" ;;
+      W_GPUS="${W_GPUS:-1}"; per_core=18; per_mem=240; max_core=72; max_mem=950 ;;
+    gpu)
+      W_GPUS="${W_GPUS:-4}"; per_core=10; per_mem=92;  max_core=40; max_mem=368; exclusive=1 ;;
     nairr-gpu)
-      W_GPUS="${W_GPUS:-4}"; W_CPUS="${W_CPUS:-18}"; W_MEM="${W_MEM:-950G}"
-      W_NTASKS="${W_NTASKS:-4}" ;;
+      W_GPUS="${W_GPUS:-4}"; per_core=18; per_mem=240; max_core=72; max_mem=950; exclusive=1 ;;
     shared|preempt)
       W_CPUS="${W_CPUS:-16}"; W_MEM="${W_MEM:-32G}" ;;
     compute)
-      W_CPUS="${W_CPUS:-128}"; W_MEM="${W_MEM:-249325M}" ;;
+      W_CPUS="${W_CPUS:-128}"; W_MEM="${W_MEM:-249325M}"; exclusive=1 ;;
     large-shared)
       W_CPUS="${W_CPUS:-16}"; W_MEM="${W_MEM:-256G}" ;;
     debug)
@@ -381,15 +393,58 @@ wrap_defaults() {
     *)
       note "warning: unrecognised partition '$W_PART'; specify --cpus, --mem and --time yourself" ;;
   esac
-  W_NODES="${W_NODES:-1}"
-  W_NTASKS="${W_NTASKS:-1}"
+
+  # GPU count as a plain integer, whatever prefix the caller used.
+  W_GPUN=0
+  if [ -n "$W_GPUS" ]; then
+    W_GPUN="${W_GPUS#*:}"
+    case "$W_GPUN" in
+      ''|*[!0-9]*) die "--gpus must be a number, or h100:<number>; got '$W_GPUS'" ;;
+    esac
+  fi
+  [ "$W_GPUN" -gt 4 ] && die "a node has at most 4 GPUs; for $W_GPUN use --nodes $(( (W_GPUN + 3) / 4 )) with 4 GPUs each"
+  case "$W_PART" in
+    gpu-debug) [ "$W_GPUN" -gt 2 ] && die "gpu-debug allows at most 2 GPUs" ;;
+    gpu-shared) [ "$W_GPUN" = 4 ] && note "note: 4 GPUs on gpu-shared takes a whole node anyway; --partition gpu is equivalent and often schedules sooner." ;;
+  esac
+
+  # Scale cores and memory to the GPUs actually requested.
+  if [ "$per_core" -gt 0 ] && [ "$W_GPUN" -gt 0 ]; then
+    if [ "$exclusive" = 1 ]; then
+      W_CPUS="${W_CPUS:-$max_core}"; W_MEM="${W_MEM:-${max_mem}G}"
+    else
+      W_CPUS="${W_CPUS:-$(imin $((per_core * W_GPUN)) "$max_core")}"
+      W_MEM="${W_MEM:-$(imin $((per_mem * W_GPUN)) "$max_mem")G}"
+    fi
+  fi
   W_TIME="${W_TIME:-02:00:00}"
 
   # The AI resource rejects a bare GPU count: the type must be named.
   case "$W_PART" in
-    nairr-*) case "$W_GPUS" in ""|h100:*) : ;; *) W_GPUS="h100:$W_GPUS" ;; esac ;;
+    nairr-*) [ -n "$W_GPUS" ] && W_GPUS="h100:${W_GPUS#*:}" ;;
     *)       W_GPUS="${W_GPUS#h100:}" ;;
   esac
+
+  wrap_resolve_launcher
+
+  # torchrun and accelerate spawn one worker per GPU themselves, so SLURM must
+  # start exactly one task per node. Getting this wrong launches N launchers
+  # each spawning N workers, and the job deadlocks on the rendezvous.
+  case "$W_LAUNCH" in
+    torchrun|accelerate) W_NTASKS=1 ;;
+    srun)                W_NTASKS="${W_NTASKS:-$W_GPUN}" ;;
+    *)                   W_NTASKS="${W_NTASKS:-1}" ;;
+  esac
+  W_PORT="${W_PORT:-29500}"
+
+  # Only the exclusive partitions can span nodes.
+  if [ "$W_NODES" -gt 1 ]; then
+    case "$W_PART" in
+      gpu|nairr-gpu|compute|preempt) : ;;
+      *) die "partition $W_PART is limited to 1 node; use --partition gpu (or nairr-gpu) for multi-node" ;;
+    esac
+    [ "$W_LAUNCH" = accelerate ] && die "multi-node with accelerate is not generated here; use --launcher torchrun"
+  fi
 
   # Debug partitions are capped at 30 minutes; refuse rather than let SLURM reject it.
   case "$W_PART" in
@@ -399,6 +454,24 @@ wrap_defaults() {
         *) die "partition $W_PART allows at most 00:30:00, got --time $W_TIME" ;;
       esac ;;
   esac
+}
+
+# Decide how the payload is started across GPUs.
+wrap_resolve_launcher() {
+  local total=$(( W_GPUN * W_NODES ))
+  case "${W_LAUNCH:-auto}" in
+    none|torchrun|accelerate|srun) return 0 ;;
+    auto) : ;;
+    *) die "--launcher must be one of: auto, torchrun, accelerate, srun, none" ;;
+  esac
+  if [ "$total" -gt 1 ] && [ "$(wrap_interpreter "${W_SRC:-x.py}")" = python ]; then
+    W_LAUNCH=torchrun
+    note "multi-GPU: using torchrun with $W_GPUN process(es) per node across $W_NODES node(s) = $total total."
+    note "Your script must be distribution-aware (torch DDP, Lightning, HF Trainer or accelerate)."
+    note "Override with --launcher none if it handles multiple GPUs by itself."
+  else
+    W_LAUNCH=none
+  fi
 }
 
 wrap_interpreter() {
@@ -470,12 +543,52 @@ wrap_emit() {
     printf '%s\n' "conda activate $W_CONDA"
     printf '%s\n' ""
   fi
+  # Distributed setup, only when more than one worker is involved.
+  case "$W_LAUNCH" in
+    torchrun|accelerate|srun)
+      printf '%s\n' "# Distributed run: $W_GPUN process(es) per node across $W_NODES node(s)."
+      printf '%s\n' 'export NCCL_DEBUG=WARN'
+      # Each worker gets its share of the cores; leaving this at the job total
+      # makes every rank spawn N threads and thrash the node.
+      printf '%s\n' "export OMP_NUM_THREADS=$(( W_CPUS / (W_GPUN > 0 ? W_GPUN : 1) ))"
+      if [ "$W_NODES" -gt 1 ]; then
+        printf '%s\n' 'MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n1)'
+        printf '%s\n' "export MASTER_ADDR MASTER_PORT=$W_PORT"
+        printf '%s\n' 'echo "rendezvous: $MASTER_ADDR:$MASTER_PORT nodes=$SLURM_NNODES"'
+      fi
+      printf '%s\n' ""
+      ;;
+  esac
   printf '%s\n' 'echo "host=$(hostname) job=$SLURM_JOB_ID started=$(date -Is)"'
   if [ "$is_gpu" = gpu ]; then
     printf '%s\n' 'nvidia-smi --query-gpu=index,name,memory.total --format=csv'
   fi
   printf '%s\n' ""
-  local payload="$interp $base${W_ARGS:+ $W_ARGS}"
+  # How the payload is started across the GPUs.
+  local payload
+  case "$W_LAUNCH" in
+    torchrun)
+      if [ "$W_NODES" -gt 1 ]; then
+        payload="srun --cpu-bind=cores torchrun \\
+  --nnodes=\"\$SLURM_NNODES\" \\
+  --nproc_per_node=$W_GPUN \\
+  --rdzv_id=\"\$SLURM_JOB_ID\" \\
+  --rdzv_backend=c10d \\
+  --rdzv_endpoint=\"\$MASTER_ADDR:\$MASTER_PORT\" \\
+  $base${W_ARGS:+ $W_ARGS}"
+      else
+        payload="torchrun --standalone --nnodes=1 --nproc_per_node=$W_GPUN \\
+  $base${W_ARGS:+ $W_ARGS}"
+      fi ;;
+    accelerate)
+      payload="accelerate launch --num_machines=1 --num_processes=$W_GPUN \\
+  $base${W_ARGS:+ $W_ARGS}" ;;
+    srun)
+      payload="srun --cpu-bind=cores $interp $base${W_ARGS:+ $W_ARGS}" ;;
+    *)
+      payload="$interp $base${W_ARGS:+ $W_ARGS}" ;;
+  esac
+
   if [ -n "$W_SIF" ]; then
     # --nv is what exposes the GPUs; without it CUDA is invisible inside the image.
     printf '%s\n' "singularity exec --nv --bind \"\$RUN_DIR\":\"\$RUN_DIR\" $W_SIF $payload"
@@ -491,6 +604,7 @@ cmd_wrap() {
   [ -f "$src" ] || die "no such script: $src"
   wrap_reset
   wrap_parse_opts "$@"
+  W_SRC="$src"
   wrap_defaults
   if [ -n "$W_OUT" ]; then
     wrap_emit "$src" > "$W_OUT"
@@ -505,6 +619,7 @@ cmd_launch() {
   [ -f "$src" ] || die "no such script: $src"
   wrap_reset
   wrap_parse_opts "$@"
+  W_SRC="$src"
   wrap_defaults
   require_account
   require_user

@@ -48,12 +48,19 @@ scripts/expanse.sh logs <jobid>
    partitions charge for what you request, not what you use. Get agreement before
    anything over roughly 4 hours or wider than one node.
 5. **On `gpu-shared`, request `--cpus-per-task` and `--mem` explicitly.** The
-   default is 1 core and 1 GB per GPU.
-6. **On the H100 partitions, GPUs are `--gpus=h100:N`.** Plain `--gpus=N` is
+   default is 1 core and 1 GB per GPU. `wrap`/`launch` handle this for you and
+   scale both with the GPU count.
+6. **More than one GPU needs a launcher and a distribution-aware script.**
+   `--gpus N` adds `torchrun` automatically. That starts one process per GPU, each
+   running the script in full, so single-process training code would run N
+   redundant copies at N times the cost. Confirm the script uses DDP, HuggingFace
+   `Trainer`, `accelerate` or Lightning; if it manages GPUs itself, pass
+   `--launcher none`. Over 4 GPUs means `--nodes` on an exclusive partition.
+7. **On the H100 partitions, GPUs are `--gpus=h100:N`.** Plain `--gpus=N` is
    rejected.
-7. **Report the true outcome.** Quote the SLURM state and exit code from `sacct`,
+8. **Report the true outcome.** Quote the SLURM state and exit code from `sacct`,
    and read the log. `TIMEOUT` and `FAILED` are not successes.
-8. **Do not `scancel` jobs you did not submit**, and do not delete anything under
+9. **Do not `scancel` jobs you did not submit**, and do not delete anything under
    `/expanse/lustre/projects/` - that space is shared with the project team.
 
 ## Where things are

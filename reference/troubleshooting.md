@@ -53,6 +53,20 @@ landed on a CPU partition; or a CPU-only torch wheel is installed.
 Almost always the default 1 core and 1 GB per GPU. Add `--cpus-per-task` and
 `--mem`. Data loading starves the GPU long before compute does.
 
+**Multi-GPU job runs but is no faster, and the log repeats itself N times**
+The script is not distribution-aware, so `torchrun` started N independent copies
+of a single-process program. Each one trains the full dataset on its own GPU and
+they overwrite each other's checkpoints. Either adopt DDP / HuggingFace `Trainer`
+/ `accelerate` / Lightning, or drop to one GPU. `--launcher none` is only correct
+if the script itself spreads work across GPUs, for example `nn.DataParallel`.
+
+**Distributed job hangs at startup with no output**
+The rendezvous never completed. Usual causes: `--ntasks-per-node` is not 1 under
+`torchrun` (N launchers each spawning N workers), `MASTER_PORT` collides with
+another job on a shared node (`--master-port`), or one rank crashed before
+joining and the rest are still waiting. `NCCL_DEBUG=INFO` in place of the
+generated `WARN` shows the handshake.
+
 **`Killed` with no traceback**
 Out of memory at the OS level. Raise `--mem`, or lower batch size or workers.
 `sacct -j <id> --format=JobID,MaxRSS,ReqMem -X -P` shows what it actually used.
