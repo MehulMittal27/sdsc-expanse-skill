@@ -196,6 +196,19 @@ Never `scancel` another job you did not submit. Never delete anything under
 `/expanse/lustre/projects/` without explicit instruction: it is shared with the
 whole project team.
 
+## Proving it works
+
+`scripts/selftest.sh` checks generation, scaling, launchers and every guard with
+no cluster involved. `examples/smoke_train.py` is a tiny distribution-aware
+trainer for a real end-to-end run; `examples/smoke_single.py` is the
+single-process counterpart that the multi-GPU guard rejects. Before any long job,
+prove the path cheaply:
+
+```bash
+scripts/expanse.sh launch examples/smoke_train.py \
+    --partition gpu-debug --gpus 2 --time 00:10:00
+```
+
 ## Reference
 
 - `reference/slurm.md` - partitions, limits, hardware, charging, sbatch directives
@@ -203,4 +216,5 @@ whole project team.
 - `reference/software.md` - modules, conda, singularity, PyTorch and HuggingFace setup
 - `reference/distributed.md` - converting single-GPU training to multi-GPU, and when not to
 - `reference/troubleshooting.md` - failure modes and fixes
+- `examples/` - smoke trainers, single-process and distributed
 - `INSTALL.md` - first-time setup, and installing this skill into other agents

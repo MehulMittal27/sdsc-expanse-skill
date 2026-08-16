@@ -73,6 +73,10 @@ templates/
   gpu-h100-nairr.sbatch      Expanse AI Resource H100 nodes
   cpu-shared.sbatch          CPU-only work
   interactive.sh             srun recipes for interactive sessions
+examples/
+  smoke_train.py             tiny distribution-aware trainer; proves the pipeline end to end
+  smoke_single.py            ordinary single-process trainer; demonstrates the multi-GPU guard
+scripts/selftest.sh          72 offline checks: generation, scaling, launchers, every guard
 reference/
   slurm.md                   partitions, limits, hardware, charging, directives
   filesystems.md             paths, quotas, purge policy, data transfer, Globus
@@ -105,6 +109,26 @@ expanse.sh exec <cmd...>               run a command on the login node
 
 Templates carry `{{ACCOUNT}}` and `{{RUN_DIR}}` placeholders that `submit` fills
 in from your config, so nobody's username or allocation is ever hard-coded.
+
+## Verifying it works
+
+```bash
+./scripts/selftest.sh          # no cluster, no account, no network needed
+```
+
+72 checks covering job generation, resource scaling, launcher selection, every
+safety guard, and that each generated job script is valid bash. Then, with an
+account, the real end-to-end proof on the debug queue:
+
+```bash
+./scripts/expanse.sh launch examples/smoke_train.py \
+    --partition gpu-debug --gpus 1 --time 00:10:00
+./scripts/expanse.sh launch examples/smoke_train.py \
+    --partition gpu-debug --gpus 2 --time 00:10:00
+```
+
+The first should name a V100 and show a falling loss; the second should print two
+rank lines and still write exactly one checkpoint.
 
 ## Safety properties
 

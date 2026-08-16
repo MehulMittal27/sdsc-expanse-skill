@@ -108,6 +108,26 @@ Fixes:
 Verify empirically: train the same data on 1 GPU and on N, and compare retrieval
 metrics, not loss. If N-GPU is worse, this is why.
 
+## Worked example of the batch-size effect
+
+`examples/smoke_train.py` run on identical data and epochs, varying only the
+world size:
+
+| ranks | epochs | final loss |
+|---|---|---|
+| 1 | 3 | 0.55 |
+| 2 | 3 | 21.4 |
+| 4 | 2 | 96.6 |
+
+Nothing is broken here. Each rank sees `1/N` of the data per epoch, so `N` ranks
+take `N` times fewer optimizer steps for the same epoch count, and the run is
+simply less far along. This is the "effective batch size" line of the checklist
+made visible: adding GPUs without raising the epoch count or the learning rate
+gives you a less-trained model, not a faster-trained one.
+
+Reach for steps rather than epochs when comparing, and re-tune the learning rate
+for the new global batch.
+
 ## Validate cheaply before spending the allocation
 
 ```bash

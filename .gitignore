@@ -4,3 +4,5 @@
 *.out
 *.err
 results/
+__pycache__/
+*.pyc
