@@ -49,35 +49,65 @@ scripts/expanse.sh check && scripts/expanse.sh config
 5. **Lustre is not backed up and is purged.** Scratch files disappear 90 days
    after creation. Pull anything you care about back with `expanse.sh pull`.
 
-## Standard workflow
+## Standard workflow: an ordinary script, run on the cluster
+
+This is the common case. The user hands you `train.py` (or `prep.sh`, or an R
+script) and wants it run on Expanse. You do **not** hand-write a SLURM file:
 
 ```bash
-# 0. confirm the session and the allocation
-scripts/expanse.sh check
-scripts/expanse.sh alloc                     # remaining SUs per project
+scripts/expanse.sh check                     # session live?
+scripts/expanse.sh alloc                     # remaining SUs
 
-# 1. stage code and data (code -> home, data -> Lustre scratch)
-scripts/expanse.sh push-code ./src
-scripts/expanse.sh push ./data
+scripts/expanse.sh launch ./train.py \
+  --partition gpu-shared --gpus 1 --time 04:00:00 \
+  --conda myenv --with ./data --with ./src --args "--epochs 10"
 
-# 2. pick a template, edit it, submit
-cp templates/gpu-shared-v100.sbatch ./train.sbatch
-#   ... edit resources and the command ...
-JOB=$(scripts/expanse.sh submit ./train.sbatch)
-
-# 3. watch
-scripts/expanse.sh status "$JOB"             # PENDING / RUNNING / final state
-scripts/expanse.sh wait "$JOB"               # block until it leaves the queue
-scripts/expanse.sh logs "$JOB"               # stdout
-
-# 4. bring results home
-scripts/expanse.sh pull outputs ./results
+scripts/expanse.sh pull outputs ./results    # bring results back
 ```
 
-`scripts/expanse.sh run ./train.sbatch` does submit + wait + logs in one call.
+`launch` does the whole thing: generates a correct sbatch wrapper around your
+script, uploads the script and everything named with `--with` into the Lustre run
+directory, submits, waits, and prints the log.
 
-`{{ACCOUNT}}` and `{{RUN_DIR}}` in a template are filled in automatically at
-submit time from the configured account and project. Leave them as placeholders.
+To see or tweak the generated job before running it:
+
+```bash
+scripts/expanse.sh wrap ./train.py --partition gpu-shared --gpus 1 --out job.sbatch
+# read it, edit anything, then:
+scripts/expanse.sh submit ./job.sbatch
+```
+
+`wrap` picks the interpreter from the file extension (`.py` to `python`, `.sh` to
+`bash`, `.R` to `Rscript`, `.jl` to `julia`), loads the right base module, points
+every cache away from `/home`, `cd`s into the run directory, and applies sensible
+per-partition defaults for cores, memory and walltime. It also fixes the two
+mistakes that silently kill jobs: it adds the `h100:` prefix on the AI-resource
+partitions, and it never leaves you on the `gpu-shared` default of 1 core and 1 GB.
+
+Options: `--name --partition --gpus --cpus --mem --time --nodes --ntasks-per-node
+--conda --sif --module --with --interpreter --args --out`. Run
+`scripts/expanse.sh --help` for the full list.
+
+### When you need full control
+
+For anything the generator does not cover - multi-node DDP, job arrays, MPI,
+dependency chains - start from a template instead:
+
+```bash
+cp templates/gpu-full-node-v100.sbatch ./train.sbatch
+#   ... edit ...
+JOB=$(scripts/expanse.sh submit ./train.sbatch)
+scripts/expanse.sh status "$JOB"
+scripts/expanse.sh wait "$JOB"
+scripts/expanse.sh logs "$JOB"
+```
+
+`{{ACCOUNT}}` and `{{RUN_DIR}}` are filled in automatically at submit time from
+the configured account and project. Leave them as placeholders. `submit` refuses
+a script with any placeholder left unfilled or with no `--account` line.
+
+Other staging commands, when you need them separately: `push` (into Lustre scratch),
+`push-code` (into home), `pull` (back to your machine).
 
 ## Choosing a partition
 

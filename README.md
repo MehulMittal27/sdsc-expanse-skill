@@ -33,6 +33,18 @@ Then, in your agent:
 > Train the model in `./src` on one V100 on Expanse for two hours and bring back
 > the checkpoints.
 
+Under the hood that is one command. You hand it an ordinary script; it writes the
+SLURM wrapper, uploads it, runs it, and shows you the log:
+
+```bash
+./scripts/expanse.sh launch ./train.py \
+    --partition gpu-shared --gpus 1 --time 02:00:00 \
+    --conda myenv --with ./data --args "--epochs 10"
+```
+
+`wrap` does the generation alone (`--out job.sbatch`) if you want to read or edit
+the job script before it runs.
+
 ## What is in here
 
 ```
@@ -62,10 +74,12 @@ expanse.sh check                       is it live? (agents call this first)
 expanse.sh config                      resolved settings and remote paths
 expanse.sh alloc                       allocations and remaining service units
 expanse.sh partitions                  what this account can see
+expanse.sh wrap <script> [opts]        turn a plain script into a SLURM job script
+expanse.sh launch <script> [opts]      wrap + upload + submit + wait + logs
 expanse.sh push <local> [subpath]      stage data into Lustre scratch
 expanse.sh push-code <local> [subpath] stage code into home
 expanse.sh pull <subpath> <local>      bring results back
-expanse.sh submit <job.sbatch>         submit, prints the job id
+expanse.sh submit <job.sbatch>         submit an existing sbatch, prints the job id
 expanse.sh status [jobid]              queue state, or the final state via sacct
 expanse.sh wait <jobid> [timeout]      block until it leaves the queue
 expanse.sh logs <jobid> [-f]           job stdout

@@ -14,10 +14,25 @@ All cluster interaction goes through `scripts/expanse.sh`. Do not hand-write raw
 ```bash
 scripts/expanse.sh check          # is the session live?
 scripts/expanse.sh alloc          # allocation balance
-scripts/expanse.sh submit job.sbatch
+
+# Run an ordinary script on the cluster. This generates the SLURM wrapper,
+# uploads everything, submits, waits, and prints the log:
+scripts/expanse.sh launch ./train.py --partition gpu-shared --gpus 1 \
+    --time 04:00:00 --conda myenv --with ./data --args "--epochs 10"
+
+scripts/expanse.sh pull outputs ./results
+```
+
+Do not hand-write a SLURM file for a plain script. Use `wrap` to generate one
+(`--out job.sbatch` to inspect or edit it first) or `launch` to do everything.
+Reach for `templates/` only when you need something the generator does not cover:
+multi-node DDP, MPI, job arrays, dependency chains.
+
+```bash
+scripts/expanse.sh wrap ./train.py --gpus 1 --out job.sbatch   # generate only
+scripts/expanse.sh submit job.sbatch                            # existing sbatch
 scripts/expanse.sh status <jobid>
 scripts/expanse.sh logs <jobid>
-scripts/expanse.sh pull outputs ./results
 ```
 
 ## Non-negotiables

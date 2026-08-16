@@ -15,13 +15,30 @@
 #   push <local> [remote-subpath]  rsync into the remote run directory (Lustre scratch)
 #   push-code <local> [subpath]    rsync into the remote code directory (home)
 #   pull <remote-subpath> <local>  rsync back from the remote run directory
-#   submit <script.sbatch> [--wait] submit a job; prints JOBID
+#   wrap <script> [opts]           turn a plain script (.py/.sh/.R/...) into an sbatch job
+#   launch <script> [opts]         wrap + upload + submit + wait + logs, end to end
+#   submit <script.sbatch> [--wait] submit an existing sbatch file; prints JOBID
 #   status [jobid]                 squeue for the user, or one job (falls back to sacct)
 #   wait <jobid> [timeout-sec]     block until the job leaves the queue
 #   logs <jobid> [-f]              print (or follow) the job's stdout file
 #   cancel <jobid>                 scancel
-#   run <script.sbatch>            push + submit + wait + logs, end to end
+#   run <script.sbatch>            submit + wait + logs for an existing sbatch file
 #   config                         print the resolved configuration
+#
+# wrap/launch options:
+#   --name NAME              job name (default: the script's basename)
+#   --partition NAME         gpu-shared (default) | gpu | nairr-gpu-shared | nairr-gpu
+#                            | shared | compute | large-shared | gpu-debug | debug
+#                            | preempt | gpu-preempt
+#   --gpus N | h100:N        GPU count; the h100: prefix is added automatically on nairr-*
+#   --cpus N  --mem 92G  --time HH:MM:SS  --nodes N  --ntasks-per-node N
+#   --conda ENV              activate a conda env living under the run directory
+#   --sif IMAGE.sif          run inside a singularity image with --nv
+#   --module NAME            extra module to load (repeatable)
+#   --with PATH              extra local file/dir to upload alongside the script (repeatable)
+#   --interpreter CMD        override the interpreter (default inferred from extension)
+#   --args "..."             arguments passed to the script
+#   --out FILE               wrap only: write the sbatch here instead of stdout
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -300,6 +317,223 @@ cmd_run() {
   cmd_logs "$jobid"
 }
 
+# --- turning a plain script into a SLURM job ---------------------------------
+W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
+W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
+W_MODULES=(); W_WITH=()
+
+wrap_reset() {
+  W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
+  W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
+  W_MODULES=(); W_WITH=()
+}
+
+wrap_parse_opts() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)             W_NAME="${2:?--name needs a value}"; shift 2 ;;
+      --partition|-p)     W_PART="${2:?--partition needs a value}"; shift 2 ;;
+      --gpus)             W_GPUS="${2:?--gpus needs a value}"; shift 2 ;;
+      --cpus)             W_CPUS="${2:?--cpus needs a value}"; shift 2 ;;
+      --mem)              W_MEM="${2:?--mem needs a value}"; shift 2 ;;
+      --time|-t)          W_TIME="${2:?--time needs a value}"; shift 2 ;;
+      --nodes)            W_NODES="${2:?--nodes needs a value}"; shift 2 ;;
+      --ntasks-per-node)  W_NTASKS="${2:?--ntasks-per-node needs a value}"; shift 2 ;;
+      --conda)            W_CONDA="${2:?--conda needs a value}"; shift 2 ;;
+      --sif)              W_SIF="${2:?--sif needs a value}"; shift 2 ;;
+      --module)           W_MODULES+=("${2:?--module needs a value}"); shift 2 ;;
+      --with)             W_WITH+=("${2:?--with needs a value}"); shift 2 ;;
+      --interpreter)      W_INTERP="${2:?--interpreter needs a value}"; shift 2 ;;
+      --args)             W_ARGS="${2:?--args needs a value}"; shift 2 ;;
+      --out|-o)           W_OUT="${2:?--out needs a value}"; shift 2 ;;
+      --)                 shift; W_ARGS="$*"; break ;;
+      -*)                 die "unknown option: $1 (see: expanse.sh --help)" ;;
+      *)                  die "unexpected argument: $1" ;;
+    esac
+  done
+}
+
+# Fill in whatever the caller did not specify, using the shape of the partition.
+wrap_defaults() {
+  W_PART="${W_PART:-gpu-shared}"
+  case "$W_PART" in
+    gpu-shared|gpu-preempt)
+      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-92G}" ;;
+    gpu)
+      W_GPUS="${W_GPUS:-4}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-377300M}"
+      W_NTASKS="${W_NTASKS:-4}" ;;
+    gpu-debug)
+      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-10}"; W_MEM="${W_MEM:-92G}"
+      W_TIME="${W_TIME:-00:30:00}" ;;
+    nairr-gpu-shared)
+      W_GPUS="${W_GPUS:-1}"; W_CPUS="${W_CPUS:-18}"; W_MEM="${W_MEM:-240G}" ;;
+    nairr-gpu)
+      W_GPUS="${W_GPUS:-4}"; W_CPUS="${W_CPUS:-18}"; W_MEM="${W_MEM:-950G}"
+      W_NTASKS="${W_NTASKS:-4}" ;;
+    shared|preempt)
+      W_CPUS="${W_CPUS:-16}"; W_MEM="${W_MEM:-32G}" ;;
+    compute)
+      W_CPUS="${W_CPUS:-128}"; W_MEM="${W_MEM:-249325M}" ;;
+    large-shared)
+      W_CPUS="${W_CPUS:-16}"; W_MEM="${W_MEM:-256G}" ;;
+    debug)
+      W_CPUS="${W_CPUS:-4}"; W_MEM="${W_MEM:-8G}"; W_TIME="${W_TIME:-00:30:00}" ;;
+    *)
+      note "warning: unrecognised partition '$W_PART'; specify --cpus, --mem and --time yourself" ;;
+  esac
+  W_NODES="${W_NODES:-1}"
+  W_NTASKS="${W_NTASKS:-1}"
+  W_TIME="${W_TIME:-02:00:00}"
+
+  # The AI resource rejects a bare GPU count: the type must be named.
+  case "$W_PART" in
+    nairr-*) case "$W_GPUS" in ""|h100:*) : ;; *) W_GPUS="h100:$W_GPUS" ;; esac ;;
+    *)       W_GPUS="${W_GPUS#h100:}" ;;
+  esac
+
+  # Debug partitions are capped at 30 minutes; refuse rather than let SLURM reject it.
+  case "$W_PART" in
+    debug|gpu-debug)
+      case "$W_TIME" in
+        00:0*|00:1*|00:2*|00:30:00) : ;;
+        *) die "partition $W_PART allows at most 00:30:00, got --time $W_TIME" ;;
+      esac ;;
+  esac
+}
+
+wrap_interpreter() {
+  local f="$1"
+  [ -n "$W_INTERP" ] && { printf '%s' "$W_INTERP"; return; }
+  case "$f" in
+    *.py)        printf 'python' ;;
+    *.sh|*.bash) printf 'bash' ;;
+    *.R|*.r)     printf 'Rscript' ;;
+    *.jl)        printf 'julia' ;;
+    *.pl)        printf 'perl' ;;
+    *)           printf 'bash' ;;
+  esac
+}
+
+# Emit an sbatch script to stdout. {{ACCOUNT}}/{{RUN_DIR}} stay as placeholders so
+# the output is portable and `submit` fills them in from the caller's config.
+wrap_emit() {
+  local src="$1" base interp gpu_line ntasks_line
+  base=$(basename -- "$src")
+  interp=$(wrap_interpreter "$base")
+  local name="${W_NAME:-${base%.*}}"
+
+  gpu_line=""
+  [ -n "$W_GPUS" ] && gpu_line="#SBATCH --gpus=$W_GPUS"
+  ntasks_line="#SBATCH --ntasks-per-node=$W_NTASKS"
+
+  local is_gpu=cpu
+  case "$W_PART" in gpu*|nairr-*) is_gpu=gpu ;; esac
+
+  printf '%s\n' "#!/bin/bash"
+  printf '%s\n' "# Generated by expanse.sh wrap from: $base"
+  printf '%s\n' "# Edit freely, or regenerate with different options."
+  printf '%s\n' ""
+  printf '%s\n' "#SBATCH --job-name=$name"
+  printf '%s\n' "#SBATCH --account={{ACCOUNT}}"
+  printf '%s\n' "#SBATCH --partition=$W_PART"
+  printf '%s\n' "#SBATCH --nodes=$W_NODES"
+  printf '%s\n' "$ntasks_line"
+  [ -n "$gpu_line" ] && printf '%s\n' "$gpu_line"
+  printf '%s\n' "#SBATCH --cpus-per-task=$W_CPUS"
+  printf '%s\n' "#SBATCH --mem=$W_MEM"
+  printf '%s\n' "#SBATCH --time=$W_TIME"
+  printf '%s\n' "#SBATCH --output={{RUN_DIR}}/logs/%x.%j.out"
+  printf '%s\n' "#SBATCH --error={{RUN_DIR}}/logs/%x.%j.err"
+  printf '%s\n' "#SBATCH --no-requeue"
+  printf '%s\n' ""
+  printf '%s\n' "set -euo pipefail"
+  printf '%s\n' ""
+  printf '%s\n' "module purge"
+  printf '%s\n' "module load $is_gpu"
+  printf '%s\n' "module load slurm"
+  local m
+  for m in ${W_MODULES[@]+"${W_MODULES[@]}"}; do printf '%s\n' "module load $m"; done
+  printf '%s\n' ""
+  printf '%s\n' 'export RUN_DIR="{{RUN_DIR}}"'
+  printf '%s\n' 'export LOCAL_SCRATCH="/scratch/$USER/job_$SLURM_JOB_ID"'
+  printf '%s\n' 'export TMPDIR="$LOCAL_SCRATCH"'
+  printf '%s\n' '# Keep every cache off /home: 100 GB quota, and not built for throughput.'
+  printf '%s\n' 'export HF_HOME="$RUN_DIR/cache/huggingface"'
+  printf '%s\n' 'export TORCH_HOME="$RUN_DIR/cache/torch"'
+  printf '%s\n' 'export PIP_CACHE_DIR="$RUN_DIR/cache/pip"'
+  printf '%s\n' 'export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"'
+  printf '%s\n' 'mkdir -p "$LOCAL_SCRATCH" "$HF_HOME" "$TORCH_HOME" "$PIP_CACHE_DIR" "$RUN_DIR/outputs"'
+  printf '%s\n' 'cd "$RUN_DIR"'
+  printf '%s\n' ""
+  if [ -n "$W_CONDA" ]; then
+    printf '%s\n' "source \"\${EXPANSE_CONDA_SH:-\$RUN_DIR/miniconda3/etc/profile.d/conda.sh}\""
+    printf '%s\n' "conda activate $W_CONDA"
+    printf '%s\n' ""
+  fi
+  printf '%s\n' 'echo "host=$(hostname) job=$SLURM_JOB_ID started=$(date -Is)"'
+  if [ "$is_gpu" = gpu ]; then
+    printf '%s\n' 'nvidia-smi --query-gpu=index,name,memory.total --format=csv'
+  fi
+  printf '%s\n' ""
+  local payload="$interp $base${W_ARGS:+ $W_ARGS}"
+  if [ -n "$W_SIF" ]; then
+    # --nv is what exposes the GPUs; without it CUDA is invisible inside the image.
+    printf '%s\n' "singularity exec --nv --bind \"\$RUN_DIR\":\"\$RUN_DIR\" $W_SIF $payload"
+  else
+    printf '%s\n' "$payload"
+  fi
+  printf '%s\n' ""
+  printf '%s\n' 'echo "finished=$(date -Is)"'
+}
+
+cmd_wrap() {
+  local src="${1:?usage: wrap <script> [options]}"; shift || true
+  [ -f "$src" ] || die "no such script: $src"
+  wrap_reset
+  wrap_parse_opts "$@"
+  wrap_defaults
+  if [ -n "$W_OUT" ]; then
+    wrap_emit "$src" > "$W_OUT"
+    note "wrote $W_OUT"
+  else
+    wrap_emit "$src"
+  fi
+}
+
+cmd_launch() {
+  local src="${1:?usage: launch <script> [options]}"; shift || true
+  [ -f "$src" ] || die "no such script: $src"
+  wrap_reset
+  wrap_parse_opts "$@"
+  wrap_defaults
+  require_account
+  require_user
+  require_master
+
+  local base rundir sbatch_file
+  base=$(basename -- "$src")
+  rundir="$(remote_run_dir)"
+  sbatch_file=$(mktemp "${TMPDIR:-/tmp}/expanse-XXXXXX.sbatch")
+  # shellcheck disable=SC2064
+  trap "rm -f '$sbatch_file'" RETURN
+  wrap_emit "$src" > "$sbatch_file"
+
+  note "staging $base and its inputs into $rundir"
+  r "mkdir -p '$rundir/logs' '$rundir/outputs'"
+  rsync -az -e "$(rsh_cmd)" "$src" "$EXPANSE_USER@$EXPANSE_HOST:$rundir/$base"
+  local extra
+  for extra in ${W_WITH[@]+"${W_WITH[@]}"}; do
+    [ -e "$extra" ] || die "no such --with path: $extra"
+    rsync -az -e "$(rsh_cmd)" "$extra" "$EXPANSE_USER@$EXPANSE_HOST:$rundir/"
+  done
+
+  local jobid
+  jobid=$(cmd_submit "$sbatch_file")
+  note "submitted job $jobid on $W_PART (${W_GPUS:-no} gpu, $W_CPUS cpu, $W_MEM, $W_TIME)"
+  cmd_wait "$jobid" || true
+  cmd_logs "$jobid"
+}
+
 main() {
   local cmd="${1:-}"; shift || true
   case "$cmd" in
@@ -313,13 +547,16 @@ main() {
     push)       cmd_push "$@" ;;
     push-code)  cmd_push_code "$@" ;;
     pull)       cmd_pull "$@" ;;
+    wrap)       cmd_wrap "$@" ;;
+    launch)     cmd_launch "$@" ;;
     submit)     cmd_submit "$@" ;;
     status)     cmd_status "$@" ;;
     wait)       cmd_wait "$@" ;;
     logs)       cmd_logs "$@" ;;
     cancel)     cmd_cancel "$@" ;;
     run)        cmd_run "$@" ;;
-    ""|-h|--help|help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+    ""|-h|--help|help)
+      awk 'NR>1 && /^set -euo/ {exit} NR>1 {sub(/^# ?/, ""); print}' "${BASH_SOURCE[0]}" ;;
     *)          die "unknown command: $cmd (try --help)" ;;
   esac
 }
