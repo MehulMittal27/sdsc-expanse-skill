@@ -21,11 +21,12 @@ with an instruction rather than hanging on a hidden password prompt.
 ## Quick start
 
 ```bash
-git clone <this-repo> ~/expanse-agent-skill
-cd ~/expanse-agent-skill && chmod +x scripts/*.sh
+git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/expanse-agent-skill
+cd ~/expanse-agent-skill
+./scripts/install.sh                # expanse command on PATH + skill links
 ./scripts/expanse-setup.sh          # your username, allocation, ssh config
-./scripts/expanse.sh login          # once per session: password + 6-digit code
-./scripts/expanse.sh alloc          # confirm you can see your allocation
+expanse login                       # once per session: password + 6-digit code
+expanse alloc                       # confirm you can see your allocation
 ```
 
 Then, in your agent:
@@ -37,7 +38,7 @@ Under the hood that is one command. You hand it an ordinary script; it writes th
 SLURM wrapper, uploads it, runs it, and shows you the log:
 
 ```bash
-./scripts/expanse.sh launch ./train.py \
+expanse launch ./train.py \
     --partition gpu-shared --gpus 1 --time 02:00:00 \
     --conda myenv --with ./data --args "--epochs 10"
 ```
@@ -49,8 +50,8 @@ Multi-GPU is one flag. Cores and memory scale with the GPU count, and a `torchru
 launcher is added so every GPU gets a worker:
 
 ```bash
-./scripts/expanse.sh launch ./train.py --gpus 4                       # 4 V100s, one node
-./scripts/expanse.sh launch ./train.py --partition gpu --nodes 2 --gpus 4   # 8 across two nodes
+expanse launch ./train.py --gpus 4                       # 4 V100s, one node
+expanse launch ./train.py --partition gpu --nodes 2 --gpus 4   # 8 across two nodes
 ```
 
 Your training script has to be distribution-aware for that (DDP, HuggingFace
@@ -65,6 +66,7 @@ conversion, and when a bigger batch on one GPU is the better answer.
 SKILL.md                     the procedure (Claude Code skill frontmatter)
 AGENTS.md                    same essentials for AGENTS.md-reading agents
 INSTALL.md                   setup, per-agent installation, sharing with collaborators
+scripts/install.sh           installs the expanse command and agent skill links
 scripts/expanse-setup.sh     one-time config: username, account, ssh sharing, keys
 scripts/expanse.sh           the driver: login, push, submit, status, wait, logs, pull
 templates/
@@ -121,9 +123,9 @@ safety guard, and that each generated job script is valid bash. Then, with an
 account, the real end-to-end proof on the debug queue:
 
 ```bash
-./scripts/expanse.sh launch examples/smoke_train.py \
+expanse launch examples/smoke_train.py \
     --partition gpu-debug --gpus 1 --time 00:10:00
-./scripts/expanse.sh launch examples/smoke_train.py \
+expanse launch examples/smoke_train.py \
     --partition gpu-debug --gpus 2 --time 00:10:00
 ```
 

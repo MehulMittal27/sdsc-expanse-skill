@@ -16,10 +16,10 @@ already use). Changes take up to 15 minutes to take effect.
 Then:
 
 ```bash
-git clone <this-repo> ~/expanse-agent-skill
+git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/expanse-agent-skill
 cd ~/expanse-agent-skill
-chmod +x scripts/*.sh
-./scripts/expanse-setup.sh
+./scripts/install.sh          # expanse command on PATH + skill links
+./scripts/expanse-setup.sh    # your username and allocation
 ```
 
 It asks for:
@@ -62,16 +62,29 @@ repeated prompt.
 
 ## 2. Install into your agent
 
+`./scripts/install.sh` does this for every supported agent at once. It installs:
+
+- an `expanse` command in `~/.local/bin`, so the driver works from **any**
+  directory - your agent runs in your project, not in this repo, so a relative
+  `scripts/expanse.sh` would not resolve
+- `~/.claude/skills/sdsc-expanse` for Claude Code
+- `~/.agents/skills/sdsc-expanse` for harnesses using that convention
+
+Add `--project` to also link it into the current project's `.claude/` and
+`.agents/`. Check what is installed with `./scripts/install.sh --check`.
+
 ### Claude Code
 
-```bash
-mkdir -p ~/.claude/skills
-ln -s ~/expanse-agent-skill ~/.claude/skills/sdsc-expanse
-```
+Covered by `install.sh` above. Claude Code reads the frontmatter in `SKILL.md`
+and loads the skill automatically when a task mentions Expanse, SDSC, an
+allocation or cluster jobs. Start a new session after installing, then confirm
+with `/skills` or just ask it to check your Expanse allocation.
 
-Per project instead of globally: `ln -s ~/expanse-agent-skill .claude/skills/sdsc-expanse`.
-Claude reads the frontmatter in `SKILL.md` and loads the skill when a task
-mentions Expanse, SDSC or cluster jobs.
+If `~/.local/bin` is not on your `PATH`, add this to your shell profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
 
 ### Codex CLI, Cursor, opencode, Gemini CLI, Jules, Aider
 

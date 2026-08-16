@@ -6,8 +6,15 @@ description: Run compute jobs end to end on the SDSC Expanse supercomputer (V100
 # SDSC Expanse
 
 Drive the SDSC Expanse cluster: connect, move data, submit SLURM jobs, watch them,
-retrieve results. Everything goes through `scripts/expanse.sh`, which never blocks
-on an interactive prompt.
+retrieve results. Everything goes through one command, `expanse`, which never
+blocks on an interactive prompt.
+
+**Invocation.** Use the `expanse` command. It is installed on PATH by
+`scripts/install.sh`, so it works from whatever directory you are in - you run in
+the user's project, not in this skill's directory, so relative paths like
+`scripts/expanse.sh` will not resolve. If `expanse` is not found, fall back to the
+absolute path of this skill's `scripts/expanse.sh` and tell the user to run
+`scripts/install.sh`.
 
 Authoritative vendor documentation: <https://www.sdsc.edu/systems/expanse/user_guide.html>
 
@@ -16,7 +23,7 @@ Authoritative vendor documentation: <https://www.sdsc.edu/systems/expanse/user_g
 Run this. It is cheap and it tells you whether you can work at all:
 
 ```bash
-scripts/expanse.sh check && scripts/expanse.sh config
+expanse check && expanse config
 ```
 
 - `live` means the shared SSH session is up. Proceed.
@@ -24,7 +31,7 @@ scripts/expanse.sh check && scripts/expanse.sh config
   Expanse demands a one-time authenticator code on every login, so you cannot
   open the connection yourself. Tell them, verbatim:
 
-  > Please run `scripts/expanse.sh login` in your terminal and enter your
+  > Please run `expanse login` in your terminal and enter your
   > password and 6-digit code. I will continue once the session is up.
 
   Do not try `ssh` directly, do not try to script the code, do not retry in a
@@ -55,14 +62,14 @@ This is the common case. The user hands you `train.py` (or `prep.sh`, or an R
 script) and wants it run on Expanse. You do **not** hand-write a SLURM file:
 
 ```bash
-scripts/expanse.sh check                     # session live?
-scripts/expanse.sh alloc                     # remaining SUs
+expanse check                     # session live?
+expanse alloc                     # remaining SUs
 
-scripts/expanse.sh launch ./train.py \
+expanse launch ./train.py \
   --partition gpu-shared --gpus 1 --time 04:00:00 \
   --conda myenv --with ./data --with ./src --args "--epochs 10"
 
-scripts/expanse.sh pull outputs ./results    # bring results back
+expanse pull outputs ./results    # bring results back
 ```
 
 `launch` does the whole thing: generates a correct sbatch wrapper around your
@@ -72,9 +79,9 @@ directory, submits, waits, and prints the log.
 To see or tweak the generated job before running it:
 
 ```bash
-scripts/expanse.sh wrap ./train.py --partition gpu-shared --gpus 1 --out job.sbatch
+expanse wrap ./train.py --partition gpu-shared --gpus 1 --out job.sbatch
 # read it, edit anything, then:
-scripts/expanse.sh submit ./job.sbatch
+expanse submit ./job.sbatch
 ```
 
 `wrap` picks the interpreter from the file extension (`.py` to `python`, `.sh` to
@@ -86,7 +93,7 @@ partitions, and it never leaves you on the `gpu-shared` default of 1 core and 1 
 
 Options: `--name --partition --gpus --cpus --mem --time --nodes --ntasks-per-node
 --conda --sif --module --with --interpreter --args --out`. Run
-`scripts/expanse.sh --help` for the full list.
+`expanse --help` for the full list.
 
 ### Multiple GPUs
 
@@ -94,14 +101,14 @@ Just raise `--gpus`. Cores and memory scale with it, and a `torchrun` launcher i
 added automatically so every GPU actually gets a worker:
 
 ```bash
-scripts/expanse.sh launch ./train.py --gpus 4 --time 06:00:00 --conda embed
+expanse launch ./train.py --gpus 4 --time 06:00:00 --conda embed
 # -> 4 GPUs, 40 cores, 368G, torchrun --nproc_per_node=4
 ```
 
 Across nodes, for more than 4 GPUs:
 
 ```bash
-scripts/expanse.sh launch ./train.py --partition gpu --nodes 2 --gpus 4
+expanse launch ./train.py --partition gpu --nodes 2 --gpus 4
 # -> 8 GPUs; srun + torchrun with a c10d rendezvous on the first node
 ```
 
@@ -139,10 +146,10 @@ dependency chains - start from a template instead:
 ```bash
 cp templates/gpu-full-node-v100.sbatch ./train.sbatch
 #   ... edit ...
-JOB=$(scripts/expanse.sh submit ./train.sbatch)
-scripts/expanse.sh status "$JOB"
-scripts/expanse.sh wait "$JOB"
-scripts/expanse.sh logs "$JOB"
+JOB=$(expanse submit ./train.sbatch)
+expanse status "$JOB"
+expanse wait "$JOB"
+expanse logs "$JOB"
 ```
 
 `{{ACCOUNT}}` and `{{RUN_DIR}}` are filled in automatically at submit time from
@@ -170,8 +177,8 @@ Hardware: V100 nodes are 4x V100 SXM2, 40 cores, 384 GB. H100 nodes are 4x H100,
 
 Read `reference/troubleshooting.md`. The short version:
 
-- **`Invalid account`** - `EXPANSE_ACCOUNT` is wrong. Run `scripts/expanse.sh alloc`.
-- **Job never starts** - check `scripts/expanse.sh status`; the reason column says
+- **`Invalid account`** - `EXPANSE_ACCOUNT` is wrong. Run `expanse alloc`.
+- **Job never starts** - check `expanse status`; the reason column says
   why. `QOSMaxJobsPerUserLimit` and `Priority` mean wait; `PartitionConfig` means
   the request is impossible for that partition.
 - **OOM or very slow on `gpu-shared`** - you forgot `--cpus-per-task` and `--mem`.
@@ -190,7 +197,7 @@ Always report the real outcome, including the SLURM state and the exit code from
 Jobs burn a finite allocation. On exclusive partitions you are charged for what
 you **request**, not what you use. Before submitting anything long or wide
 (over ~4 hours, or more than one node), say what it will cost and get the human's
-agreement. Check the balance with `scripts/expanse.sh alloc`.
+agreement. Check the balance with `expanse alloc`.
 
 Never `scancel` another job you did not submit. Never delete anything under
 `/expanse/lustre/projects/` without explicit instruction: it is shared with the
@@ -205,7 +212,7 @@ single-process counterpart that the multi-GPU guard rejects. Before any long job
 prove the path cheaply:
 
 ```bash
-scripts/expanse.sh launch examples/smoke_train.py \
+expanse launch examples/smoke_train.py \
     --partition gpu-debug --gpus 2 --time 00:10:00
 ```
 

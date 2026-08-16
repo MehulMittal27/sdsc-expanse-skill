@@ -8,19 +8,21 @@ depending on skill discovery.
 
 ## Entry point
 
-All cluster interaction goes through `scripts/expanse.sh`. Do not hand-write raw
-`ssh` commands to `login.expanse.sdsc.edu`.
+All cluster interaction goes through the `expanse` command, installed on PATH by
+`scripts/install.sh`. It works from any working directory. Do not use a relative
+path like `scripts/expanse.sh` - you run in the user's project, not in the skill
+directory - and never hand-write raw `ssh` commands to `login.expanse.sdsc.edu`.
 
 ```bash
-scripts/expanse.sh check          # is the session live?
-scripts/expanse.sh alloc          # allocation balance
+expanse check          # is the session live?
+expanse alloc          # allocation balance
 
 # Run an ordinary script on the cluster. This generates the SLURM wrapper,
 # uploads everything, submits, waits, and prints the log:
-scripts/expanse.sh launch ./train.py --partition gpu-shared --gpus 1 \
+expanse launch ./train.py --partition gpu-shared --gpus 1 \
     --time 04:00:00 --conda myenv --with ./data --args "--epochs 10"
 
-scripts/expanse.sh pull outputs ./results
+expanse pull outputs ./results
 ```
 
 Do not hand-write a SLURM file for a plain script. Use `wrap` to generate one
@@ -29,17 +31,17 @@ Reach for `templates/` only when you need something the generator does not cover
 multi-node DDP, MPI, job arrays, dependency chains.
 
 ```bash
-scripts/expanse.sh wrap ./train.py --gpus 1 --out job.sbatch   # generate only
-scripts/expanse.sh submit job.sbatch                            # existing sbatch
-scripts/expanse.sh status <jobid>
-scripts/expanse.sh logs <jobid>
+expanse wrap ./train.py --gpus 1 --out job.sbatch   # generate only
+expanse submit job.sbatch                            # existing sbatch
+expanse status <jobid>
+expanse logs <jobid>
 ```
 
 ## Non-negotiables
 
 1. **You cannot log in by yourself.** Expanse requires a one-time authenticator
    code on every login. If any command exits 78 or `check` prints `dead`, stop and
-   ask the human to run `scripts/expanse.sh login`. Do not retry in a loop, do not
+   ask the human to run `expanse login`. Do not retry in a loop, do not
    try to obtain the code.
 2. **Never run compute on a login node.** Submit a job with `sbatch`.
 3. **Never run jobs from `/home`.** Working directory is Lustre scratch. Point
