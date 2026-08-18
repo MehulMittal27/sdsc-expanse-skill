@@ -203,6 +203,41 @@ Never `scancel` another job you did not submit. Never delete anything under
 `/expanse/lustre/projects/` without explicit instruction: it is shared with the
 whole project team.
 
+## Moving real data: Globus
+
+`push`/`pull` go through the login node - fine for code, wrong for datasets. Over
+a few GB, or more than a few thousand files, use Globus: it transfers
+server-to-server, survives your laptop sleeping, and resumes after failures.
+
+```bash
+expanse globus-check                  # installed, logged in, consented?
+expanse globus-put ./dataset          # this machine -> Expanse scratch
+expanse globus-get outputs ./results  # back again
+expanse globus-archive outputs        # scratch -> project space
+expanse globus-status                 # recent transfers
+```
+
+`globus login` and `globus session consent` are browser flows tied to a human
+identity. **You cannot do them.** `globus-check` prints the exact command to hand
+over; print it and wait, exactly as with `expanse login`.
+
+**Archive anything worth keeping.** Scratch is purged 90 days after creation with
+no warning and no backup; project space lasts until the allocation expires. Run
+`expanse globus-archive <subpath>` as soon as results exist. Full detail in
+`reference/globus.md`.
+
+## Environment on the cluster: what actually works
+
+Verified August 2026: **SDSC's provided PyTorch container is broken on the GPU
+nodes.** The image is from April 2024 and hits `Failed to initialize NVML:
+Driver/library version mismatch` against the current driver, after which
+`torch.cuda.is_available()` is False and the job silently trains on CPU while
+reporting success.
+
+Use a conda environment on Lustre instead - `reference/software.md` has the exact
+recipe, verified working with torch 2.5.1+cu121 on V100s. Always print
+`torch.cuda.is_available()` at the start of a run so a CPU fallback is loud.
+
 ## Proving it works
 
 `scripts/selftest.sh` checks generation, scaling, launchers and every guard with
@@ -221,6 +256,7 @@ expanse launch examples/smoke_train.py \
 - `reference/slurm.md` - partitions, limits, hardware, charging, sbatch directives
 - `reference/filesystems.md` - paths, quotas, purge policy, data transfer, Globus
 - `reference/software.md` - modules, conda, singularity, PyTorch and HuggingFace setup
+- `reference/globus.md` - moving datasets, archiving results off purge-prone scratch
 - `reference/distributed.md` - converting single-GPU training to multi-GPU, and when not to
 - `reference/troubleshooting.md` - failure modes and fixes
 - `examples/` - smoke trainers, single-process and distributed

@@ -164,6 +164,17 @@ env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" --user t
 if [ "$(grep -c 'Host expanse' "$SB/.ssh/config")" = 1 ]; then
   ok "re-running does not duplicate the ssh block"; else bad "re-running duplicates the ssh block"; fi
 
+section "Globus"
+says "globus-check refuses cleanly when not configured" "globus" \
+     env HOME="$WORK/sandbox" XDG_CONFIG_HOME="$WORK/nocfg" "$EXP" globus-check
+for c in globus-put globus-get globus-archive globus-restore globus-endpoints globus-status; do
+  if grep -q "    $c)" "$EXP"; then ok "$c is dispatched"; else bad "$c is not dispatched"; fi
+done
+if grep -q 'globus_need_laptop' "$EXP"; then
+  ok "laptop transfers check for a personal endpoint"; else bad "no personal-endpoint check"; fi
+if grep -q 'A human must grant Globus consent' "$EXP"; then
+  ok "consent is handed to a human, never attempted"; else bad "consent handling missing"; fi
+
 section "Connection safety"
 says "remote command refuses without a session" "no live Expanse session" \
      env XDG_CONFIG_HOME="$WORK/cfg" EXPANSE_USER=testuser "$EXP" alloc

@@ -25,6 +25,16 @@
 #   run <script.sbatch>            submit + wait + logs for an existing sbatch file
 #   config                         print the resolved configuration
 #
+# Globus - for data too large to push through the login node:
+#   globus-check                   installed, logged in and consented?
+#   globus-endpoints               discover and cache the collection IDs
+#   globus-put <local> [subpath]   this machine -> Expanse scratch
+#   globus-get <subpath> <local>   Expanse scratch -> this machine
+#   globus-archive <subpath>       scratch -> project space (survives the 90-day purge)
+#   globus-restore <subpath>       project space -> scratch
+#   globus-status [task-id]        recent transfers, or one task
+#   globus-wait <task-id> [secs]   block until a transfer finishes
+#
 # wrap/launch options:
 #   --name NAME              job name (default: the script's basename)
 #   --partition NAME         gpu-shared (default) | gpu | nairr-gpu-shared | nairr-gpu
@@ -64,15 +74,24 @@ REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 # Precedence: environment > repo-local .expanse.env > ~/.config/expanse/config.env
 CONFIG_USER="${XDG_CONFIG_HOME:-$HOME/.config}/expanse/config.env"
 CONFIG_REPO="$REPO_DIR/.expanse.env"
+CONFIG_GLOBUS="${XDG_CONFIG_HOME:-$HOME/.config}/expanse/globus.env"
 
 load_config() {
+  # An explicit environment variable must win over the stored config, so
+  # remember what the caller set before sourcing anything and put it back after.
+  local _env_user="${EXPANSE_USER:-}" _env_acct="${EXPANSE_ACCOUNT:-}"
+  local _env_proj="${EXPANSE_PROJECT:-}" _env_host="${EXPANSE_HOST:-}"
   local f
-  for f in "$CONFIG_USER" "$CONFIG_REPO"; do
+  for f in "$CONFIG_USER" "$CONFIG_REPO" "$CONFIG_GLOBUS"; do
     if [ -f "$f" ]; then
       # shellcheck disable=SC1090
       set -a; . "$f"; set +a
     fi
   done
+  [ -n "$_env_user" ] && EXPANSE_USER="$_env_user"
+  [ -n "$_env_acct" ] && EXPANSE_ACCOUNT="$_env_acct"
+  [ -n "$_env_proj" ] && EXPANSE_PROJECT="$_env_proj"
+  [ -n "$_env_host" ] && EXPANSE_HOST="$_env_host"
   EXPANSE_HOST="${EXPANSE_HOST:-login.expanse.sdsc.edu}"
   EXPANSE_ALIAS="${EXPANSE_ALIAS:-expanse}"
   EXPANSE_PROJECT="${EXPANSE_PROJECT:-default}"
@@ -209,7 +228,7 @@ cmd_push() {
   local dst; dst="$(remote_run_dir)${sub:+/$sub}"
   require_master
   r "mkdir -p '$dst'"
-  rsync -az --info=stats1 -e "$(rsh_cmd)" "$src" "$EXPANSE_USER@$EXPANSE_HOST:$dst/"
+  rsync -az -v -e "$(rsh_cmd)" "$src" "$EXPANSE_USER@$EXPANSE_HOST:$dst/"
   printf '%s\n' "$dst"
 }
 
@@ -219,7 +238,7 @@ cmd_push_code() {
   local dst; dst="$(remote_code_dir)${sub:+/$sub}"
   require_master
   r "mkdir -p '$dst'"
-  rsync -az --info=stats1 -e "$(rsh_cmd)" "$src" "$EXPANSE_USER@$EXPANSE_HOST:$dst/"
+  rsync -az -v -e "$(rsh_cmd)" "$src" "$EXPANSE_USER@$EXPANSE_HOST:$dst/"
   printf '%s\n' "$dst"
 }
 
@@ -228,7 +247,7 @@ cmd_pull() {
   local dest="${2:?usage: pull <remote-subpath> <local-dest>}"
   require_master
   mkdir -p "$dest"
-  rsync -az --info=stats1 -e "$(rsh_cmd)" \
+  rsync -az -v -e "$(rsh_cmd)" \
     "$EXPANSE_USER@$EXPANSE_HOST:$(remote_run_dir)/$sub" "$dest/"
 }
 
@@ -331,6 +350,161 @@ cmd_run() {
   printf 'submitted %s\n' "$jobid" >&2
   cmd_wait "$jobid" || true
   cmd_logs "$jobid"
+}
+
+# --- Globus: for data too large for the login node ----------------------------
+# SDSC asks that login nodes not be used as a primary transfer host. Globus moves
+# data server-to-server: it survives your laptop sleeping, resumes after failures,
+# and verifies checksums. Use it for anything above a few GB.
+globus_cli() {
+  command -v globus >/dev/null 2>&1 || die "the globus CLI is not installed. Install it with:
+    python3 -m venv ~/.local/globus-venv && ~/.local/globus-venv/bin/pip install globus-cli
+    ln -sf ~/.local/globus-venv/bin/globus ~/.local/bin/globus"
+  globus "$@"
+}
+
+globus_require_login() {
+  globus_cli whoami >/dev/null 2>&1 && return 0
+  die "not logged in to Globus. A human must run: globus login"
+}
+
+# Consent is per collection and needs a browser, so print the exact command.
+globus_consent_hint() {
+  local ids="" id
+  for id in "$@"; do
+    [ -n "$id" ] && ids="$ids *https://auth.globus.org/scopes/$id/data_access"
+  done
+  printf 'A human must grant Globus consent for these collections:\n\n' >&2
+  printf "    globus session consent 'urn:globus:auth:scope:transfer.api.globus.org:all[%s]'\n\n" "${ids# }" >&2
+}
+
+globus_find_id() { # globus_find_id <display-name>
+  globus_cli endpoint search "$1" --filter-scope all --limit 5 --format json 2>/dev/null \
+    | python3 -c 'import json,sys
+target = sys.argv[1]
+for e in json.load(sys.stdin).get("DATA", []):
+    if e.get("display_name") == target:
+        print(e["id"]); break' "$1"
+}
+
+cmd_globus_endpoints() {
+  globus_require_login
+  require_user
+  local lustre projects mine
+  lustre=$(globus_find_id "SDSC HPC - Expanse Lustre")
+  projects=$(globus_find_id "SDSC HPC - Projects")
+  mine=$(globus_cli endpoint search --filter-scope my-endpoints --limit 5 --format json 2>/dev/null \
+    | python3 -c 'import json,sys
+d = json.load(sys.stdin).get("DATA", [])
+print(d[0]["id"] if d else "")')
+
+  mkdir -p "$(dirname -- "$CONFIG_GLOBUS")"
+  {
+    printf '# Globus endpoints - discovered by expanse.sh globus-endpoints\n'
+    printf 'GLOBUS_EXPANSE_LUSTRE=%s\n' "$lustre"
+    printf 'GLOBUS_SDSC_PROJECTS=%s\n' "$projects"
+    [ -n "$mine" ] && printf 'GLOBUS_LAPTOP=%s\n' "$mine"
+    printf 'GLOBUS_SCRATCH_PREFIX=/scratch/%s/temp_project\n' "$EXPANSE_USER"
+    printf 'GLOBUS_PROJECTS_PREFIX=/projects/%s/%s\n' "${EXPANSE_ACCOUNT:-UNKNOWN}" "$EXPANSE_USER"
+  } > "$CONFIG_GLOBUS"
+  chmod 600 "$CONFIG_GLOBUS"
+  printf '  %-26s %s\n' "Expanse Lustre" "${lustre:-NOT FOUND}"
+  printf '  %-26s %s\n' "SDSC Projects" "${projects:-NOT FOUND}"
+  printf '  %-26s %s\n' "this machine" "${mine:-none - install Globus Connect Personal}"
+  note "wrote $CONFIG_GLOBUS"
+}
+
+cmd_globus_check() {
+  command -v globus >/dev/null 2>&1 || { printf 'globus CLI:   NOT INSTALLED\n'; return 1; }
+  printf 'globus CLI:   installed\n'
+  local who
+  if who=$(globus_cli whoami 2>/dev/null); then
+    printf 'logged in:    %s\n' "$who"
+  else
+    printf 'logged in:    NO - a human must run: globus login\n'; return 1
+  fi
+  printf 'lustre:       %s\n' "${GLOBUS_EXPANSE_LUSTRE:-<unset, run: expanse globus-endpoints>}"
+  printf 'projects:     %s\n' "${GLOBUS_SDSC_PROJECTS:-<unset>}"
+  printf 'this machine: %s\n' "${GLOBUS_LAPTOP:-<none - install Globus Connect Personal>}"
+  if [ -n "${GLOBUS_EXPANSE_LUSTRE:-}" ]; then
+    if globus_cli ls "$GLOBUS_EXPANSE_LUSTRE:${GLOBUS_SCRATCH_PREFIX:-/}/" >/dev/null 2>&1; then
+      printf 'consent:      granted\n'
+    else
+      printf 'consent:      MISSING\n'
+      globus_consent_hint "$GLOBUS_EXPANSE_LUSTRE" "${GLOBUS_SDSC_PROJECTS:-}" "${GLOBUS_LAPTOP:-}"
+      return 1
+    fi
+  fi
+}
+
+globus_need() {
+  [ -n "${GLOBUS_EXPANSE_LUSTRE:-}" ] || die "Globus endpoints unknown. Run: expanse globus-endpoints"
+}
+globus_need_laptop() {
+  [ -n "${GLOBUS_LAPTOP:-}" ] || die "this machine is not a Globus endpoint. Install Globus Connect Personal from https://www.globus.org/globus-connect-personal, then run: expanse globus-endpoints"
+}
+
+globus_submit() { # globus_submit <label> <src> <dst>
+  local label="$1" src="$2" dst="$3" out task
+  globus_require_login
+  out=$(globus_cli transfer --recursive --sync-level checksum --label "$label" \
+        --notify off "$src" "$dst" --format json 2>&1) \
+    || { printf '%s\n' "$out" >&2; die "transfer failed to start"; }
+  task=$(printf '%s' "$out" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("task_id",""))
+except Exception: print("")')
+  [ -n "$task" ] || { printf '%s\n' "$out" >&2; die "could not read the task id"; }
+  printf '%s\n' "$task"
+  note "transfer $task started"
+  note "watch it with: expanse globus-status $task"
+}
+
+cmd_globus_put() {
+  local src="${1:?usage: globus-put <local-path> [remote-subpath]}" sub="${2:-}"
+  globus_need; globus_need_laptop
+  local abs; abs=$(cd -P -- "$(dirname -- "$src")" && printf '%s/%s' "$(pwd)" "$(basename -- "$src")")
+  globus_submit "expanse-put-$EXPANSE_PROJECT" "$GLOBUS_LAPTOP:$abs" \
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/${sub:-$(basename -- "$src")}"
+}
+
+cmd_globus_get() {
+  local sub="${1:?usage: globus-get <remote-subpath> <local-dest>}"
+  local dest="${2:?usage: globus-get <remote-subpath> <local-dest>}"
+  globus_need; globus_need_laptop
+  mkdir -p "$dest"
+  local abs; abs=$(cd -P -- "$dest" && pwd)
+  globus_submit "expanse-get-$EXPANSE_PROJECT" \
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/$sub" "$GLOBUS_LAPTOP:$abs"
+}
+
+# Scratch is purged 90 days after creation; project space is not.
+cmd_globus_archive() {
+  local sub="${1:?usage: globus-archive <subpath-under-the-run-dir>}"
+  globus_need
+  [ -n "${GLOBUS_SDSC_PROJECTS:-}" ] || die "the projects collection is unknown. Run: expanse globus-endpoints"
+  globus_submit "expanse-archive-$EXPANSE_PROJECT" \
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/$sub" \
+    "$GLOBUS_SDSC_PROJECTS:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub"
+}
+
+cmd_globus_restore() {
+  local sub="${1:?usage: globus-restore <subpath>}"
+  globus_need
+  globus_submit "expanse-restore-$EXPANSE_PROJECT" \
+    "$GLOBUS_SDSC_PROJECTS:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub" \
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/$sub"
+}
+
+cmd_globus_status() {
+  local task="${1:-}"
+  [ -z "$task" ] && { globus_cli task list --limit 10; return 0; }
+  globus_cli task show "$task"
+}
+
+cmd_globus_wait() {
+  local task="${1:?usage: globus-wait <task-id> [timeout-seconds]}"
+  globus_cli task wait "$task" --timeout "${2:-3600}" --polling-interval 15
+  globus_cli task show "$task"
 }
 
 # --- turning a plain script into a SLURM job ---------------------------------
@@ -539,6 +713,15 @@ wrap_emit() {
   printf '%s\n' "module load $is_gpu"
   printf '%s\n' "module load slurm"
   local m
+  # A container image is useless without its runtime; load it unless the caller
+  # already named a singularity/apptainer module themselves.
+  if [ -n "$W_SIF" ]; then
+    local has_container=0
+    for m in ${W_MODULES[@]+"${W_MODULES[@]}"}; do
+      case "$m" in singularity*|apptainer*) has_container=1 ;; esac
+    done
+    [ "$has_container" = 0 ] && printf '%s\n' "module load singularitypro"
+  fi
   for m in ${W_MODULES[@]+"${W_MODULES[@]}"}; do printf '%s\n' "module load $m"; done
   printf '%s\n' ""
   printf '%s\n' 'export RUN_DIR="{{RUN_DIR}}"'
@@ -711,6 +894,14 @@ main() {
     push)       cmd_push "$@" ;;
     push-code)  cmd_push_code "$@" ;;
     pull)       cmd_pull "$@" ;;
+    globus-check)     cmd_globus_check "$@" ;;
+    globus-endpoints) cmd_globus_endpoints "$@" ;;
+    globus-put)       cmd_globus_put "$@" ;;
+    globus-get)       cmd_globus_get "$@" ;;
+    globus-archive)   cmd_globus_archive "$@" ;;
+    globus-restore)   cmd_globus_restore "$@" ;;
+    globus-status)    cmd_globus_status "$@" ;;
+    globus-wait)      cmd_globus_wait "$@" ;;
     wrap)       cmd_wrap "$@" ;;
     launch)     cmd_launch "$@" ;;
     submit)     cmd_submit "$@" ;;

@@ -26,6 +26,9 @@ half-configured login environment.
 Do **not** install a conda environment into `/home`: 100 GB goes fast and Lustre
 is the right place for it.
 
+**This is the route that works today.** Verified end to end on Expanse: torch
+2.5.1+cu121 in a conda env on Lustre, GPU visible, jobs running on V100s.
+
 ```bash
 # once, on a login node
 cd /expanse/lustre/scratch/$USER/temp_project/<project>
@@ -50,8 +53,26 @@ depend on invisible state.
 
 ### Singularity / Apptainer containers
 
-Expanse supports Singularity, and SDSC ships PyTorch and TensorFlow images for
-the AI resource. Sample batch scripts live at
+**Verified August 2026: SDSC's provided PyTorch image does not work on the GPU
+nodes.** `/cm/shared/apps/containers/singularity/pytorch/pytorch-latest.sif` is
+from April 2024, and against the current node driver (580.82.07) it fails with:
+
+```
+Failed to initialize NVML: Driver/library version mismatch
+torch ... cuda_build 12.1 avail False count 0
+```
+
+The job runs to completion on the CPU and reports success, so this is easy to
+miss - always print `torch.cuda.is_available()` at the top of a run. Every image
+under `/expanse/projects/qstore/installs/containers/singularity/pytorch/` is of
+the same vintage and fails the same way. Use a conda environment instead (below)
+until SDSC refreshes them.
+
+If you do use a container, `--sif` needs the runtime module. `wrap` loads
+`singularitypro` automatically; by hand it is `module load singularitypro` before
+`singularity exec --nv`.
+
+Sample batch scripts for the AI resource live at
 `/cm/shared/examples/sdsc/ExpanseAIR/pytorch`.
 
 ```bash

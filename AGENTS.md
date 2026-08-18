@@ -68,6 +68,24 @@ expanse logs <jobid>
 9. **Do not `scancel` jobs you did not submit**, and do not delete anything under
    `/expanse/lustre/projects/` - that space is shared with the project team.
 
+## Data movement
+
+`push`/`pull` use the login node - code and small inputs only. For datasets over a
+few GB use Globus: `expanse globus-put`, `globus-get`, `globus-archive`,
+`globus-status`. `globus login` and `globus session consent` are human-only
+browser flows; `expanse globus-check` prints the exact command to hand over.
+
+**Scratch is purged 90 days after creation, with no backup.** Run
+`expanse globus-archive <subpath>` to move anything worth keeping into project
+space as soon as it exists.
+
+## Cluster environment
+
+SDSC's provided PyTorch container fails on the GPU nodes (driver/library version
+mismatch, verified August 2026) and silently falls back to CPU while reporting
+success. Use a conda env on Lustre - see `reference/software.md`. Always print
+`torch.cuda.is_available()` early so a CPU fallback is loud rather than silent.
+
 ## Where things are
 
 - `SKILL.md` - the workflow, start here
@@ -75,6 +93,7 @@ expanse logs <jobid>
 - `reference/slurm.md` - partitions, limits, hardware, charging
 - `reference/filesystems.md` - paths, quotas, purge policy, data transfer
 - `reference/software.md` - modules, conda, singularity, PyTorch, HuggingFace
+- `reference/globus.md` - datasets, archiving off purge-prone scratch
 - `reference/distributed.md` - converting single-GPU training to multi-GPU
 - `reference/troubleshooting.md` - failure modes and fixes
 - `INSTALL.md` - one-time setup and per-agent installation

@@ -83,6 +83,7 @@ reference/
   slurm.md                   partitions, limits, hardware, charging, directives
   filesystems.md             paths, quotas, purge policy, data transfer, Globus
   software.md                modules, conda, singularity, PyTorch, HuggingFace
+  globus.md                  moving datasets, archiving results off purge-prone scratch
   distributed.md             single-GPU to multi-GPU conversion, and when not to
   troubleshooting.md         failure modes and fixes
 ```
@@ -107,6 +108,12 @@ expanse.sh logs <jobid> [-f]           job stdout
 expanse.sh cancel <jobid>              scancel
 expanse.sh run <job.sbatch>            submit + wait + logs
 expanse.sh exec <cmd...>               run a command on the login node
+expanse.sh globus-check                Globus installed / logged in / consented?
+expanse.sh globus-endpoints            discover and cache collection IDs
+expanse.sh globus-put <local> [sub]    this machine -> Expanse scratch (large data)
+expanse.sh globus-get <sub> <local>    Expanse scratch -> this machine
+expanse.sh globus-archive <sub>        scratch -> project space (survives purge)
+expanse.sh globus-status [task]        transfer status
 ```
 
 Templates carry `{{ACCOUNT}}` and `{{RUN_DIR}}` placeholders that `submit` fills

@@ -65,6 +65,14 @@ collections:
 - **SDSC HPC - Expanse Lustre**, mount `/expanse/lustre/scratch` shown as `/scratch/...`
 - **SDSC HPC - Projects**, mount `/expanse/lustre/projects` shown as `/projects/...`
 
+Typical per-user scratch quota is **9.5 TB and 2,000,000 files**. The file count
+is the limit that usually bites first: a dataset of many small files exhausts the
+inode budget long before the space, and Lustre is slow with them anyway. Pack into
+a few large archives and unpack onto node-local NVMe at job start.
+
+For anything above a few GB, transfer with Globus rather than `push`/`pull` -
+see `distributed.md`'s sibling, `globus.md`.
+
 Check your quota and usage:
 
 ```bash
