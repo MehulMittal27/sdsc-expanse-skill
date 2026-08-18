@@ -68,8 +68,8 @@ def main():
     args = parse_args()
     rank, world, local_rank, device = setup()
 
-    log(rank, f"world={world} device={device} "
-              f"gpu={torch.cuda.get_device_name(local_rank) if torch.cuda.is_available() else 'none'}")
+    gpu_name = torch.cuda.get_device_name(local_rank) if torch.cuda.is_available() else "none"
+    log(rank, f"world={world} device={device} gpu={gpu_name}")
 
     torch.manual_seed(0)  # identical init on every rank
 

@@ -62,6 +62,28 @@ if command -v python3 >/dev/null 2>&1; then
   done
 fi
 
+# The skill gets vendored into repos that lint everything, so its own Python must
+# pass a common ruleset. Skipped when ruff is unavailable.
+section "Python style (for repos that vendor this skill)"
+RUFF=""
+command -v ruff >/dev/null 2>&1 && RUFF=ruff
+[ -z "$RUFF" ] && [ -x "$HOME/TAIM/.venv/bin/ruff" ] && RUFF="$HOME/TAIM/.venv/bin/ruff"
+if [ -n "$RUFF" ]; then
+  cat > "$WORK/ruff.toml" <<'RUFFEOF'
+target-version = "py311"
+line-length = 100
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "S"]
+RUFFEOF
+  if (cd "$REPO_DIR" && "$RUFF" check examples/ --config "$WORK/ruff.toml" >/dev/null 2>&1); then
+    ok "examples pass a strict ruff ruleset at 100 columns"
+  else
+    bad "examples fail lint - they would break CI in a repo that vendors this"
+  fi
+else
+  ok "ruff not installed, style check skipped"
+fi
+
 section "Single GPU job"
 gen wrap "$EX/smoke_train.py" --gpus 1 > "$WORK/g1.sbatch" 2>/dev/null
 have  "requests 1 GPU"                  '^#SBATCH --gpus=1$'            "$WORK/g1.sbatch"
