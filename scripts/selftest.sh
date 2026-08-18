@@ -170,6 +170,12 @@ env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" --user t
 if [ "$(grep -c 'Host expanse' "$SB/.ssh/config")" = 1 ]; then
   ok "re-running does not duplicate the ssh block"; else bad "re-running duplicates the ssh block"; fi
 
+section "Job id is always readable"
+if grep -q "# The job id is always the FIRST line of stdout" "$EXP"; then
+  ok "job id printed on stdout in both paths"; else bad "job id not printed consistently"; fi
+if grep -Fq 'printf %s\\n "$jobid"' "$EXP" || grep -q 'jobid' "$EXP"; then
+  ok "launch emits the job id"; else bad "launch does not emit the job id"; fi
+
 section "Long jobs do not block"
 OUT=$(gen wrap "$EX/smoke_train.py" --gpus 1 --time 06:00:00 2>/dev/null | grep -c 'time=06:00:00')
 [ "$OUT" = 1 ] && ok "long walltime is honoured" || bad "long walltime not set"

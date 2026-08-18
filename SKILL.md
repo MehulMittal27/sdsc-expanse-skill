@@ -74,7 +74,22 @@ expanse pull outputs ./results    # bring results back
 
 `launch` does the whole thing: generates a correct sbatch wrapper around your
 script, uploads the script and everything named with `--with` into the Lustre run
-directory, submits, waits, and prints the log.
+directory, and submits it.
+
+**It does not block on long jobs.** Jobs of 30 minutes or less are waited on and
+their log printed. Anything longer returns the SLURM job id immediately, because
+the job runs on the cluster whether or not anyone is watching. Report that id to
+the user along with how to check on it:
+
+```
+expanse status <jobid>     queued, running, or the final state
+expanse logs <jobid>       output so far
+expanse logs <jobid> -f    follow it live
+expanse cancel <jobid>     stop it
+```
+
+`--wait` and `--no-wait` override that choice. Never sit blocking on a multi-hour
+job: submit it, give the user the id, and move on.
 
 To see or tweak the generated job before running it:
 
@@ -97,12 +112,20 @@ Options: `--name --partition --gpus --cpus --mem --time --nodes --ntasks-per-nod
 
 ### Multiple GPUs
 
-Just raise `--gpus`. Cores and memory scale with it, and a `torchrun` launcher is
-added automatically so every GPU actually gets a worker:
+Raise `--gpus`. Cores and memory scale with it, and a `torchrun` launcher is added
+automatically so every GPU actually gets a worker:
 
 ```bash
-expanse launch ./train.py --gpus 4 --time 06:00:00 --conda embed
-# -> 4 GPUs, 40 cores, 368G, torchrun --nproc_per_node=4
+expanse launch ./train.py --gpus 2 --time 06:00:00 --conda embed
+# -> 2 GPUs, 20 cores, 184G, torchrun --nproc_per_node=2
+```
+
+**`gpu-shared` allows at most 3 GPUs** (QOS `gres/gpu=3, cpu=37, mem=353000M`),
+whatever the vendor guide says. For 4 on one node use the exclusive partition:
+
+```bash
+expanse launch ./train.py --partition gpu --gpus 4 --time 06:00:00 --conda embed
+# -> whole node: 4 GPUs, 40 cores, 368G, torchrun --nproc_per_node=4
 ```
 
 Across nodes, for more than 4 GPUs:
@@ -111,6 +134,9 @@ Across nodes, for more than 4 GPUs:
 expanse launch ./train.py --partition gpu --nodes 2 --gpus 4
 # -> 8 GPUs; srun + torchrun with a c10d rendezvous on the first node
 ```
+
+Expect sub-linear scaling. Measured on V100s: 2 GPUs 1.6x, 4 GPUs 2.1x. Gradient
+synchronisation costs time, so measure before buying more GPUs.
 
 **The script must be distribution-aware.** `torchrun` starts one process per GPU,
 each of which runs your script top to bottom. Plain single-process training code
@@ -134,8 +160,9 @@ Controls:
 - `--launcher none` if your script handles its own GPUs, for example `DataParallel`
 - `--master-port N` if 29500 collides on a shared node
 
-Guards that fire before you queue: more than 4 GPUs on one node, multi-node on a
-shared partition, more than 2 GPUs on `gpu-debug`, and multi-node with
+Guards that fire before you queue: more than 3 GPUs on `gpu-shared` (with the
+exclusive partition named as the fix), more than 4 GPUs on one node, multi-node on
+a single-node partition, over the 30-minute debug cap, and multi-node with
 `accelerate`.
 
 ### When you need full control

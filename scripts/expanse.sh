@@ -895,6 +895,9 @@ cmd_launch() {
   local jobid
   jobid=$(cmd_submit "$sbatch_file")
   note "submitted job $jobid on $W_PART (${W_GPUS:-no} gpu, $W_CPUS cpu, $W_MEM, $W_TIME)"
+  # The job id is always the FIRST line of stdout, whether or not we wait, so
+  # callers can read it the same way in both cases.
+  printf '%s\n' "$jobid"
 
   # Blocking on a multi-hour job is wrong: SLURM keeps running whether anyone
   # watches or not. Wait only for short jobs, unless told otherwise.
@@ -907,7 +910,6 @@ cmd_launch() {
   fi
 
   if [ "$wait_for" = no ]; then
-    printf '%s\n' "$jobid"
     cat >&2 <<EOF
 
 Job $jobid is queued. It runs on the cluster whether or not you stay connected,

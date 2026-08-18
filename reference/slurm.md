@@ -6,17 +6,20 @@ confirm it live before relying on it.
 
 ## Partitions
 
+The **Notes** column reflects the SLURM QOS, which is authoritative. Where it
+disagrees with SDSC's prose documentation, the QOS wins - see the table below.
+
 | Partition | Nodes | Max walltime | Max nodes/job | Charge | Notes |
 |---|---|---|---|---|---|
 | `compute` | CPU | 48 h | 32 | 1x | Exclusive whole nodes |
 | `shared` | CPU | 48 h | 1 | 1x | Slice of a node, under 128 cores |
 | `large-shared` | CPU | 48 h | 1 | 1x | Large memory, 256 GB minimum |
 | `gpu` | 4x V100 | 48 h | 4 | 1x | Exclusive whole nodes |
-| `gpu-shared` | V100 | 48 h | 1 | 1x | Under 4 GPUs on one node |
+| `gpu-shared` | V100 | 48 h | 1 | 1x | **Max 3 GPUs** per job (QOS), not 4 |
 | `nairr-gpu` | 4x H100 | 48 h | 4 | 1x | Expanse AI Resource, exclusive |
 | `nairr-gpu-shared` | H100 | 48 h | 1 | 1x | Under 4 H100s on one node |
 | `debug` | CPU | 30 min | 2 | 1x | Priority access for quick tests |
-| `gpu-debug` | GPU | 30 min | 2 | 1x | Max 2 GPUs |
+| `gpu-debug` | GPU | 30 min | 2 | 1x | Up to 8 GPUs (QOS), not 2 |
 | `preempt` | CPU | 7 days | 32 | 0.8x | Can be killed by higher-priority work |
 | `gpu-preempt` | GPU | 7 days | 1 | 0.8x | Same, discounted |
 
