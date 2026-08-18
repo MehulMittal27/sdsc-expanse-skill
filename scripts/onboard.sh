@@ -85,9 +85,26 @@ if command -v globus >/dev/null 2>&1; then
   if globus whoami >/dev/null 2>&1; then
     yes "logged in as $(globus whoami 2>/dev/null)"
     if "$EXP" globus-check >/dev/null 2>&1; then
-      yes "endpoints and consent are in place"
+      yes "Expanse collections found and consented"
     else
       no "endpoints or consent missing - run: expanse globus-check  (it prints the exact command)"
+    fi
+    # Globus Connect Personal registers THIS MACHINE. Without it, transfers
+    # to and from this laptop are impossible - only server-to-server works.
+    GLOBUS_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/expanse/globus.env"
+    if grep -q '^GLOBUS_LAPTOP=.' "$GLOBUS_CFG" 2>/dev/null; then
+      yes "this machine is a Globus endpoint"
+    else
+      no "this machine is not a Globus endpoint yet"
+      printf '         Needed only to move data between THIS laptop and Expanse.\n'
+      printf '         Endpoints are per machine, so every laptop needs its own.\n\n'
+      printf '           1. install Globus Connect Personal:\n'
+      printf '              https://www.globus.org/globus-connect-personal\n'
+      printf '           2. open it, sign in, and give the endpoint a name\n'
+      printf '           3. run: expanse globus-endpoints\n\n'
+      printf '         Note: it shares your HOME DIRECTORY and nothing else by\n'
+      printf '         default. Files elsewhere (/tmp included) fail with\n'
+      printf '         "Path not allowed" - keep transferable data under ~\n'
     fi
   else
     no "not logged in - run: globus login"

@@ -185,6 +185,8 @@ OUT=$(HOME="$WORK/fresh" XDG_CONFIG_HOME="$WORK/fresh/cfg" "$SCRIPT_DIR/onboard.
 case "$OUT" in *"Next step"*) ok "always prints a single next step" ;; *) bad "no next step printed" ;; esac
 case "$OUT" in *passive.sdsc.edu*) ok "tells a new user how to enrol in 2FA" ;; *) bad "2FA enrolment not explained" ;; esac
 case "$OUT" in *"ACCESS allocation"*) ok "lists what the project owner must provide" ;; *) bad "allocation prerequisites missing" ;; esac
+case "$OUT" in *"globus-connect-personal"*) ok "explains the per-machine Globus endpoint" ;; *) bad "personal endpoint step missing" ;; esac
+case "$OUT" in *"HOME DIRECTORY"*) ok "warns that only home is shared by default" ;; *) bad "shared-path warning missing" ;; esac
 if HOME="$WORK/fresh" XDG_CONFIG_HOME="$WORK/fresh/cfg" "$SCRIPT_DIR/onboard.sh" >/dev/null 2>&1; then
   bad "should exit non-zero while setup is incomplete"
 else
