@@ -15,6 +15,7 @@ Runs unchanged in all four shapes:
 It is also the worked example for reference/distributed.md: sampler sharding,
 loss reduced across ranks, rank 0 alone writing output.
 """
+
 import argparse
 import json
 import os
@@ -68,7 +69,9 @@ def main():
     args = parse_args()
     rank, world, local_rank, device = setup()
 
-    gpu_name = torch.cuda.get_device_name(local_rank) if torch.cuda.is_available() else "none"
+    gpu_name = (
+        torch.cuda.get_device_name(local_rank) if torch.cuda.is_available() else "none"
+    )
     log(rank, f"world={world} device={device} gpu={gpu_name}")
 
     torch.manual_seed(0)  # identical init on every rank
@@ -91,9 +94,9 @@ def main():
         drop_last=True,
     )
 
-    model = nn.Sequential(
-        nn.Linear(args.dim, 256), nn.ReLU(), nn.Linear(256, 1)
-    ).to(device)
+    model = nn.Sequential(nn.Linear(args.dim, 256), nn.ReLU(), nn.Linear(256, 1)).to(
+        device
+    )
     if world > 1:
         model = DistributedDataParallel(
             model, device_ids=[local_rank] if torch.cuda.is_available() else None
@@ -145,7 +148,9 @@ def main():
         }
         with open(os.path.join(args.out, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
-        log(rank, f"wrote {args.out}/model.pt and summary.json in {summary['seconds']}s")
+        log(
+            rank, f"wrote {args.out}/model.pt and summary.json in {summary['seconds']}s"
+        )
 
     if world > 1:
         dist.destroy_process_group()
