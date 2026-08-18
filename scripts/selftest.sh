@@ -170,6 +170,14 @@ env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" --user t
 if [ "$(grep -c 'Host expanse' "$SB/.ssh/config")" = 1 ]; then
   ok "re-running does not duplicate the ssh block"; else bad "re-running duplicates the ssh block"; fi
 
+section "Long jobs do not block"
+OUT=$(gen wrap "$EX/smoke_train.py" --gpus 1 --time 06:00:00 2>/dev/null | grep -c 'time=06:00:00')
+[ "$OUT" = 1 ] && ok "long walltime is honoured" || bad "long walltime not set"
+if grep -q 'wait_for=no' "$EXP"; then ok "launch can detach from long jobs"; else bad "no detach path"; fi
+if grep -q '\-\-no-wait)' "$EXP"; then ok "--no-wait is accepted"; else bad "--no-wait missing"; fi
+if grep -q 'runs on the cluster whether or not you stay connected' "$EXP"; then
+  ok "tells the user the job survives disconnection"; else bad "detach message missing"; fi
+
 section "Onboarding"
 [ -x "$SCRIPT_DIR/onboard.sh" ] && ok "onboard.sh is executable" || bad "onboard.sh missing or not executable"
 bash -n "$SCRIPT_DIR/onboard.sh" 2>/dev/null && ok "onboard.sh is valid bash" || bad "onboard.sh has a syntax error"

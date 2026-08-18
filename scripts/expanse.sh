@@ -54,6 +54,9 @@
 #                            auto uses torchrun when a python script gets >1 GPU
 #   --master-port N          rendezvous port for multi-node runs (default 29500)
 #   --force                  skip the single-process safety check (rarely correct)
+#   --no-wait / --wait       return the job id immediately, or block until it ends.
+#                            Default: block for jobs of 30 minutes or less, detach
+#                            for longer ones - SLURM runs them either way
 #   --interpreter CMD        override the interpreter (default inferred from extension)
 #   --args "..."             arguments passed to the script
 #   --out FILE               wrap only: write the sbatch here instead of stdout
@@ -518,13 +521,13 @@ cmd_globus_wait() {
 # --- turning a plain script into a SLURM job ---------------------------------
 W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
 W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""
+W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""; W_WAIT=auto
 W_MODULES=(); W_WITH=()
 
 wrap_reset() {
   W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
   W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""; W_CONDA_SH=""
+  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""; W_WAIT=auto; W_CONDA_SH=""
   W_MODULES=(); W_WITH=()
 }
 
@@ -549,6 +552,8 @@ wrap_parse_opts() {
       --interpreter)      W_INTERP="${2:?--interpreter needs a value}"; shift 2 ;;
       --launcher)         W_LAUNCH="${2:?--launcher needs a value}"; shift 2 ;;
       --force)            W_FORCE=1; shift ;;
+      --no-wait)          W_WAIT=no; shift ;;
+      --wait)             W_WAIT=yes; shift ;;
       --master-port)      W_PORT="${2:?--master-port needs a value}"; shift 2 ;;
       --args)             W_ARGS="${2:?--args needs a value}"; shift 2 ;;
       --out|-o)           W_OUT="${2:?--out needs a value}"; shift 2 ;;
@@ -890,6 +895,36 @@ cmd_launch() {
   local jobid
   jobid=$(cmd_submit "$sbatch_file")
   note "submitted job $jobid on $W_PART (${W_GPUS:-no} gpu, $W_CPUS cpu, $W_MEM, $W_TIME)"
+
+  # Blocking on a multi-hour job is wrong: SLURM keeps running whether anyone
+  # watches or not. Wait only for short jobs, unless told otherwise.
+  local wait_for="$W_WAIT"
+  if [ "$wait_for" = auto ]; then
+    case "$W_TIME" in
+      00:0*|00:1*|00:2*|00:30:00) wait_for=yes ;;
+      *)                          wait_for=no ;;
+    esac
+  fi
+
+  if [ "$wait_for" = no ]; then
+    printf '%s\n' "$jobid"
+    cat >&2 <<EOF
+
+Job $jobid is queued. It runs on the cluster whether or not you stay connected,
+so nothing is lost by closing your laptop.
+
+  expanse status $jobid      what state it is in
+  expanse logs $jobid        output so far
+  expanse logs $jobid -f     follow it live
+  expanse wait $jobid        block until it finishes
+  expanse cancel $jobid      stop it
+
+When it finishes, save the results - scratch is purged after 90 days:
+  expanse globus-archive outputs
+EOF
+    return 0
+  fi
+
   cmd_wait "$jobid" || true
   cmd_logs "$jobid"
 }
