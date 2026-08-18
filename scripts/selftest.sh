@@ -81,7 +81,7 @@ RUFFEOF
     bad "examples fail lint - they would break CI in a repo that vendors this"
   fi
   # Many repos also gate on formatting, which is a separate check from linting.
-  if (cd "$REPO_DIR" && "$RUFF" format --check examples/ >/dev/null 2>&1); then
+  if (cd "$REPO_DIR" && "$RUFF" format --check examples/ --config "$WORK/ruff.toml" >/dev/null 2>&1); then
     ok "examples are canonically formatted"
   else
     bad "examples are not ruff-formatted - 'ruff format --check' would fail"
