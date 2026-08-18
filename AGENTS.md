@@ -6,6 +6,12 @@ full procedure. This file exists so agents that read `AGENTS.md` (Codex, Cursor,
 opencode, Gemini CLI, Jules, Aider and others) get the essentials without
 depending on skill discovery.
 
+## First time on a machine
+
+If `expanse check` or `expanse config` shows the skill is not configured, tell the
+user to run `scripts/onboard.sh` - the guided setup. Do not attempt setup for
+them: it needs their username, their two-factor enrolment and their allocation.
+
 ## Entry point
 
 All cluster interaction goes through the `expanse` command, installed on PATH by

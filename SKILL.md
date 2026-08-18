@@ -36,8 +36,16 @@ expanse check && expanse config
 
   Do not try `ssh` directly, do not try to script the code, do not retry in a
   loop. Wait for the human.
-- If `config` shows `EXPANSE_USER=<unset>` or `EXPANSE_ACCOUNT=<unset>`, the
-  human must run `scripts/expanse-setup.sh` once. See `INSTALL.md`.
+- If `config` shows `EXPANSE_USER=<unset>` or `EXPANSE_ACCOUNT=<unset>`, this
+  person has never set the skill up. Do not guess at values or run the setup
+  yourself - point them at the guided check, which reports what is done, what is
+  missing, and the single next step:
+
+  > Run `<skill>/scripts/onboard.sh`. It walks through setup and tells you what
+  > you need from whoever runs your allocation.
+
+  Run it again after they act; it is safe to repeat and changes nothing without
+  asking.
 
 ## The five rules that matter
 
