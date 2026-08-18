@@ -20,8 +20,20 @@ confirm it live before relying on it.
 | `preempt` | CPU | 7 days | 32 | 0.8x | Can be killed by higher-priority work |
 | `gpu-preempt` | GPU | 7 days | 1 | 0.8x | Same, discounted |
 
-`gpu-shared` queue limits: max 4 GPUs per job, max 24 running jobs, max 24
-running plus queued.
+**The real limits come from SLURM QOS, and they differ from the user guide.**
+Check them yourself with `sacctmgr show qos format=Name,MaxTRESPerJob%40,MaxWall,MaxJobsPU -P`:
+
+| QOS | Per-job ceiling | Max wall | Jobs per user |
+|---|---|---|---|
+| `gpu-shared-normal` | **3 GPUs**, 37 CPUs, 353000M, 1 node | 48 h | 24 |
+| `gpu-normal` | 16 GPUs, 4 nodes | 48 h | 4 |
+| `gpu-debug-normal` | **8 GPUs**, 2 nodes | 30 min | 2 |
+| `gpu-preempt-normal` | 8 GPUs, 2 nodes | 7 days | 12 |
+
+Two of these contradict the prose documentation: `gpu-shared` takes **3** GPUs
+per job, not 4, and asking for 4 fails with `QOSMaxCpuPerJobLimit` rather than a
+message about GPUs. `gpu-debug` takes up to **8**, not 2. For 4 GPUs on one node
+use `--partition gpu`, which allocates the whole node exclusively.
 
 ## Hardware
 
@@ -43,10 +55,23 @@ running plus queued.
 
 Per-GPU sizing that leaves a node evenly divisible:
 
-| | cores per GPU | memory per GPU |
-|---|---|---|
-| V100 | 10 | 92G |
-| H100 | 18 | 240G (verify) |
+| | cores per GPU | memory per GPU | per-job ceiling |
+|---|---|---|---|
+| V100 `gpu-shared` | 10 | 92G | 37 cores, 344G, 3 GPUs |
+| V100 `gpu` (whole node) | 10 | 92G | 40 cores, 368G, 4 GPUs |
+| H100 | 18 | 240G (verify) | verify with `sacctmgr` |
+
+### Measured scaling, V100, small model (August 2026)
+
+| GPUs | Wall time | Throughput | Speedup |
+|---|---|---|---|
+| 1 | 6.1s | 98,431 samples/s | 1.0x |
+| 2 | 3.8s | 157,361 samples/s | 1.6x |
+| 4 | 2.8s | 210,837 samples/s | 2.1x |
+
+Scaling is sub-linear because gradient synchronisation costs time; on a small
+model that cost is a large share of each step. Larger models and batches scale
+better, but **never assume linear** - measure before buying more GPUs.
 
 ## Required directives
 

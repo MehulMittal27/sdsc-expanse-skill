@@ -569,7 +569,7 @@ wrap_defaults() {
   local per_core=0 per_mem=0 max_core=0 max_mem=0 exclusive=0
   case "$W_PART" in
     gpu-shared|gpu-preempt)
-      W_GPUS="${W_GPUS:-1}"; per_core=10; per_mem=92;  max_core=40; max_mem=368 ;;
+      W_GPUS="${W_GPUS:-1}"; per_core=10; per_mem=92;  max_core=37; max_mem=344 ;;
     gpu-debug)
       W_GPUS="${W_GPUS:-1}"; per_core=10; per_mem=92;  max_core=40; max_mem=368
       W_TIME="${W_TIME:-00:30:00}" ;;
@@ -600,9 +600,10 @@ wrap_defaults() {
     esac
   fi
   [ "$W_GPUN" -gt 4 ] && die "a node has at most 4 GPUs; for $W_GPUN use --nodes $(( (W_GPUN + 3) / 4 )) with 4 GPUs each"
+  # Queue limits come from SLURM QOS, not from the user guide, and they differ.
   case "$W_PART" in
-    gpu-debug) [ "$W_GPUN" -gt 2 ] && die "gpu-debug allows at most 2 GPUs" ;;
-    gpu-shared) [ "$W_GPUN" = 4 ] && note "note: 4 GPUs on gpu-shared takes a whole node anyway; --partition gpu is equivalent and often schedules sooner." ;;
+    gpu-shared)
+      [ "$W_GPUN" -gt 3 ] && die "gpu-shared allows at most 3 GPUs per job (QOS gpu-shared-normal: gres/gpu=3, cpu=37, mem=353000M). For 4 GPUs use --partition gpu, which gives a whole exclusive node." ;;
   esac
 
   # Scale cores and memory to the GPUs actually requested.
@@ -870,9 +871,11 @@ cmd_launch() {
   local base rundir sbatch_file
   base=$(basename -- "$src")
   rundir="$(remote_run_dir)"
-  sbatch_file=$(mktemp "${TMPDIR:-/tmp}/expanse-XXXXXX.sbatch")
+  local tmpdir
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/expanse-XXXXXX")
+  sbatch_file="$tmpdir/${W_NAME:-${base%.*}}.sbatch"
   # shellcheck disable=SC2064
-  trap "rm -f '$sbatch_file'" RETURN
+  trap "rm -rf '$tmpdir'" RETURN
   wrap_emit "$src" > "$sbatch_file"
 
   note "staging $base and its inputs into $rundir"
