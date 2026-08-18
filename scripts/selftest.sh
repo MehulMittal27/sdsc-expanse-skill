@@ -75,13 +75,17 @@ have  "works from the run directory"    '^cd "\$RUN_DIR"$'              "$WORK/g
 have  "account placeholder present"     '^#SBATCH --account=\{\{ACCOUNT\}\}$' "$WORK/g1.sbatch"
 
 section "Multi-GPU job, one node"
-gen wrap "$EX/smoke_train.py" --gpus 4 > "$WORK/g4.sbatch" 2>/dev/null
+gen wrap "$EX/smoke_train.py" --partition gpu --gpus 4 > "$WORK/g4.sbatch" 2>/dev/null
 have  "requests 4 GPUs"                 '^#SBATCH --gpus=4$'            "$WORK/g4.sbatch"
 have  "cores scaled to 40"              '^#SBATCH --cpus-per-task=40$'  "$WORK/g4.sbatch"
 have  "memory scaled to 368G"           '^#SBATCH --mem=368G$'          "$WORK/g4.sbatch"
 have  "one task per node under torchrun" '^#SBATCH --ntasks-per-node=1$' "$WORK/g4.sbatch"
 have  "torchrun with 4 workers"         'torchrun --standalone --nnodes=1 --nproc_per_node=4' "$WORK/g4.sbatch"
 have  "threads divided per rank"        '^export OMP_NUM_THREADS=10$'   "$WORK/g4.sbatch"
+
+gen wrap "$EX/smoke_train.py" --partition gpu-shared --gpus 3 > "$WORK/gs3.sbatch" 2>/dev/null
+have  "gpu-shared 3 GPUs stays under the QOS cpu cap" '^#SBATCH --cpus-per-task=30$' "$WORK/gs3.sbatch"
+have  "gpu-shared 3 GPUs stays under the QOS mem cap" '^#SBATCH --mem=276G$'          "$WORK/gs3.sbatch"
 
 section "Multi-node job"
 gen wrap "$EX/smoke_train.py" --partition gpu --nodes 2 --gpus 4 > "$WORK/g8.sbatch" 2>/dev/null
@@ -106,11 +110,13 @@ lacks "no distributed setup"            'NCCL|torchrun'                 "$WORK/c
 section "Safety guards"
 refuses "single-process script on 4 GPUs" "$EX/smoke_single.py" --gpus 4
 accepts "single-process script on 1 GPU"  "$EX/smoke_single.py" --gpus 1
-accepts "single-process script with --launcher none" "$EX/smoke_single.py" --gpus 4 --launcher none
-accepts "distributed script on 4 GPUs"    "$EX/smoke_train.py" --gpus 4
+accepts "single-process script with --launcher none" "$EX/smoke_single.py" --partition gpu --gpus 4 --launcher none
+accepts "distributed script on 4 GPUs"    "$EX/smoke_train.py" --partition gpu --gpus 4
 refuses "more than 4 GPUs on one node"    "$EX/smoke_train.py" --gpus 8
 refuses "multi-node on a shared partition" "$EX/smoke_train.py" --nodes 2 --gpus 4
-refuses "more than 2 GPUs on gpu-debug"   "$EX/smoke_train.py" --partition gpu-debug --gpus 4
+refuses "more than 3 GPUs on gpu-shared"  "$EX/smoke_train.py" --partition gpu-shared --gpus 4
+accepts "3 GPUs on gpu-shared (the QOS ceiling)" "$EX/smoke_train.py" --partition gpu-shared --gpus 3
+accepts "4 GPUs on gpu-debug (QOS allows 8)" "$EX/smoke_train.py" --partition gpu-debug --gpus 4
 refuses "over the 30 minute debug cap"    "$EX/smoke_train.py" --partition gpu-debug --time 04:00:00
 refuses "unknown launcher"                "$EX/smoke_train.py" --gpus 2 --launcher nonsense
 refuses "multi-node with accelerate"      "$EX/smoke_train.py" --partition gpu --nodes 2 --gpus 4 --launcher accelerate
