@@ -34,9 +34,14 @@ them and should not try; it should print the command and wait, exactly as
 
 | Name | What it reaches | Path prefix |
 |---|---|---|
-| `SDSC HPC - Expanse Lustre` | scratch and projects on Expanse | `/scratch/<user>/temp_project/...` |
-| `SDSC HPC - Projects` | allocation project space | `/projects/<alloc>/<user>/...` |
+| `SDSC HPC - Expanse Lustre` | **both** Expanse scratch and project space | `/scratch/<user>/temp_project/...` and `/projects/<alloc>/<user>/...` |
 | your own machine | whatever you share | needs Globus Connect Personal |
+
+**`SDSC HPC - Projects` is a trap.** Despite the name it is unrelated storage -
+its root holds `cosmic2/`, `ps-ngbt/`, `ps-nsg/` and no Expanse allocation
+directories. Transfers targeting it fail with `PERMISSION_DENIED ... Error (make
+directories)`. Everything on Expanse, scratch and projects alike, goes through the
+**Expanse Lustre** collection, whose root shows exactly `projects/` and `scratch/`.
 
 Note the paths Globus sees are **not** the paths the cluster sees:
 `/expanse/lustre/scratch/...` appears as `/scratch/...`, and

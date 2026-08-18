@@ -42,7 +42,11 @@
 #                            | preempt | gpu-preempt
 #   --gpus N | h100:N        GPU count; the h100: prefix is added automatically on nairr-*
 #   --cpus N  --mem 92G  --time HH:MM:SS  --nodes N  --ntasks-per-node N
-#   --conda ENV              activate a conda env living under the run directory
+#   --conda ENV              conda environment to activate
+#   --conda-sh PATH          where that conda's profile.d/conda.sh lives; defaults to
+#                            $EXPANSE_CONDA_SH, else <run-dir>/miniconda3/... A conda
+#                            install bakes in its own path, so keep it OUTSIDE any
+#                            project directory and set EXPANSE_CONDA_SH once
 #   --sif IMAGE.sif          run inside a singularity image with --nv
 #   --module NAME            extra module to load (repeatable)
 #   --with PATH              extra local file/dir to upload alongside the script (repeatable)
@@ -481,17 +485,21 @@ cmd_globus_get() {
 cmd_globus_archive() {
   local sub="${1:?usage: globus-archive <subpath-under-the-run-dir>}"
   globus_need
-  [ -n "${GLOBUS_SDSC_PROJECTS:-}" ] || die "the projects collection is unknown. Run: expanse globus-endpoints"
+  require_account
+  # Both live on the Expanse Lustre collection: it exposes /scratch and
+  # /projects side by side. The separate "SDSC HPC - Projects" collection is
+  # unrelated storage and does NOT hold Expanse allocation directories.
   globus_submit "expanse-archive-$EXPANSE_PROJECT" \
     "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/$sub" \
-    "$GLOBUS_SDSC_PROJECTS:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub"
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub"
 }
 
 cmd_globus_restore() {
   local sub="${1:?usage: globus-restore <subpath>}"
   globus_need
+  require_account
   globus_submit "expanse-restore-$EXPANSE_PROJECT" \
-    "$GLOBUS_SDSC_PROJECTS:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub" \
+    "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_PROJECTS_PREFIX/$EXPANSE_PROJECT/$sub" \
     "$GLOBUS_EXPANSE_LUSTRE:$GLOBUS_SCRATCH_PREFIX/$EXPANSE_PROJECT/$sub"
 }
 
@@ -510,13 +518,13 @@ cmd_globus_wait() {
 # --- turning a plain script into a SLURM job ---------------------------------
 W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
 W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0
+W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""
 W_MODULES=(); W_WITH=()
 
 wrap_reset() {
   W_NAME=""; W_PART=""; W_GPUS=""; W_CPUS=""; W_MEM=""; W_TIME=""
   W_NODES=""; W_NTASKS=""; W_CONDA=""; W_SIF=""; W_ARGS=""; W_INTERP=""; W_OUT=""
-  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0
+  W_LAUNCH=""; W_PORT=""; W_GPUN=0; W_SRC=""; W_FORCE=0; W_CONDA_SH=""; W_CONDA_SH=""
   W_MODULES=(); W_WITH=()
 }
 
@@ -534,6 +542,7 @@ wrap_parse_opts() {
       --nodes)            W_NODES="${2:?--nodes needs a value}"; shift 2 ;;
       --ntasks-per-node)  W_NTASKS="${2:?--ntasks-per-node needs a value}"; shift 2 ;;
       --conda)            W_CONDA="${2:?--conda needs a value}"; shift 2 ;;
+      --conda-sh)         W_CONDA_SH="${2:?--conda-sh needs a value}"; shift 2 ;;
       --sif)              W_SIF="${2:?--sif needs a value}"; shift 2 ;;
       --module)           W_MODULES+=("${2:?--module needs a value}"); shift 2 ;;
       --with)             W_WITH+=("${2:?--with needs a value}"); shift 2 ;;
@@ -736,7 +745,8 @@ wrap_emit() {
   printf '%s\n' 'cd "$RUN_DIR"'
   printf '%s\n' ""
   if [ -n "$W_CONDA" ]; then
-    printf '%s\n' "source \"\${EXPANSE_CONDA_SH:-\$RUN_DIR/miniconda3/etc/profile.d/conda.sh}\""
+    local conda_sh="${W_CONDA_SH:-${EXPANSE_CONDA_SH:-\$RUN_DIR/miniconda3/etc/profile.d/conda.sh}}"
+    printf '%s\n' "source \"$conda_sh\""
     printf '%s\n' "conda activate $W_CONDA"
     printf '%s\n' ""
   fi
