@@ -87,6 +87,25 @@ Compute nodes may lack outbound internet. Pre-fetch on the login node, then set
 Checkpoint and resume. Write checkpoints to `$RUN_DIR`, not node-local scratch,
 and use `--dependency=afterany:<id>` to chain the continuation.
 
+## Globus transfers
+
+**Task stays `ACTIVE` at 0 bytes**
+Run `globus task event-list <task-id> --limit 3`. Usually
+`PERMISSION_DENIED ... Path not allowed`, meaning the source path is outside what
+Globus Connect Personal shares - by default only your home directory. Move the
+data under `~` or add the path in GCP preferences.
+
+**`The collection ... requires you to grant consent`**
+Per-collection consent, and it needs a browser. Run `expanse globus-check`; it
+prints the exact `globus session consent` command with the right IDs. A human runs
+it. An agent must not attempt this.
+
+**`this machine is not a Globus endpoint`**
+Globus Connect Personal is not installed or not registered. Install it from
+https://www.globus.org/globus-connect-personal, then `expanse globus-endpoints`.
+Endpoints are per machine: a new laptop needs a new endpoint, and the old one
+should be deleted with `globus endpoint delete <id>`.
+
 ## After the fact
 
 ```bash

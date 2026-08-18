@@ -49,6 +49,27 @@ it, laptop transfers are impossible and `globus-put`/`globus-get` will say so.
 Endpoints are per machine: switching laptops means deleting the old endpoint
 (`globus endpoint delete <id>`) and registering the new one.
 
+## Globus Connect Personal only shares what you tell it to
+
+By default your personal endpoint exposes **your home directory and nothing else**.
+A transfer from anywhere outside it fails, and the failure is not obvious: the task
+sits in `ACTIVE` at 0 bytes and only `globus task event-list <id>` reveals it:
+
+```
+PERMISSION_DENIED  500 Command failed : Path not allowed.
+```
+
+On macOS this bites with `/tmp` in particular, which also resolves to
+`/private/tmp` in the error. Keep transferable data under `~`, or add paths in the
+Globus Connect Personal preferences.
+
+When a transfer stalls at 0 bytes, always check the event list before assuming the
+network or the cluster is at fault:
+
+```bash
+globus task event-list <task-id> --limit 3
+```
+
 ## Commands
 
 ```bash
