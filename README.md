@@ -66,6 +66,7 @@ conversion, and when a bigger batch on one GPU is the better answer.
 SKILL.md                     the procedure (Claude Code skill frontmatter)
 AGENTS.md                    same essentials for AGENTS.md-reading agents
 INSTALL.md                   setup, per-agent installation, sharing with collaborators
+scripts/onboard.sh           guided first-time setup: what is done, what is next
 scripts/install.sh           installs the expanse command and agent skill links
 scripts/expanse-setup.sh     one-time config: username, account, ssh sharing, keys
 scripts/expanse.sh           the driver: login, push, submit, status, wait, logs, pull

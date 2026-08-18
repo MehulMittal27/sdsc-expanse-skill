@@ -164,6 +164,19 @@ env HOME="$SB" XDG_CONFIG_HOME="$SB/cfg" "$SCRIPT_DIR/expanse-setup.sh" --user t
 if [ "$(grep -c 'Host expanse' "$SB/.ssh/config")" = 1 ]; then
   ok "re-running does not duplicate the ssh block"; else bad "re-running duplicates the ssh block"; fi
 
+section "Onboarding"
+[ -x "$SCRIPT_DIR/onboard.sh" ] && ok "onboard.sh is executable" || bad "onboard.sh missing or not executable"
+bash -n "$SCRIPT_DIR/onboard.sh" 2>/dev/null && ok "onboard.sh is valid bash" || bad "onboard.sh has a syntax error"
+OUT=$(HOME="$WORK/fresh" XDG_CONFIG_HOME="$WORK/fresh/cfg" "$SCRIPT_DIR/onboard.sh" 2>&1)
+case "$OUT" in *"Next step"*) ok "always prints a single next step" ;; *) bad "no next step printed" ;; esac
+case "$OUT" in *passive.sdsc.edu*) ok "tells a new user how to enrol in 2FA" ;; *) bad "2FA enrolment not explained" ;; esac
+case "$OUT" in *"ACCESS allocation"*) ok "lists what the project owner must provide" ;; *) bad "allocation prerequisites missing" ;; esac
+if HOME="$WORK/fresh" XDG_CONFIG_HOME="$WORK/fresh/cfg" "$SCRIPT_DIR/onboard.sh" >/dev/null 2>&1; then
+  bad "should exit non-zero while setup is incomplete"
+else
+  ok "exits non-zero while setup is incomplete"
+fi
+
 section "Globus"
 says "globus-check refuses cleanly when not configured" "globus" \
      env HOME="$WORK/sandbox" XDG_CONFIG_HOME="$WORK/nocfg" "$EXP" globus-check

@@ -1,5 +1,45 @@
 # Install and first-time setup
 
+## New here? Start with one command
+
+```bash
+git clone https://github.com/MehulMittal27/sdsc-expanse-skill ~/sdsc-expanse-skill
+~/sdsc-expanse-skill/scripts/onboard.sh
+```
+
+`onboard.sh` checks every prerequisite, shows what is done and what is not, and
+prints the single next thing to do. Run it, do that one thing, run it again.
+Repeat until it says everything is ready. It changes nothing without asking.
+
+## What you need from whoever runs the allocation
+
+These cannot be self-served, and nothing works until they are done:
+
+| What | Who does it | Notes |
+|---|---|---|
+| Added to the ACCESS allocation | the project owner | **The slow one.** After they add you at the ACCESS level, it takes hours to days to reach Expanse. Until it lands, SSH rejects your correct password with no explanation. Do not file a ticket immediately - wait a day or two first |
+| The allocation code (e.g. `abc123`) | the project owner | Charged for every job. `expanse alloc` also shows it once you can log in |
+| Your Expanse username | you or the project owner | Often but not always the same as your ACCESS username |
+| Where shared data lives | the project owner | Usually `/expanse/lustre/projects/<alloc>/<their-user>/`, or a shared subdirectory |
+| Which conda environment to use | the project owner | Either reuse theirs (they must make it group-readable) or build your own - `reference/software.md` has the recipe |
+
+Things you do yourself, and nobody can do for you:
+
+- **Enrol in two-factor auth** at <https://passive.sdsc.edu> - sign in with
+  Globus/ACCESS, choose *Manage 2FA*, scan the QR into an authenticator app.
+  Allow 15 minutes for it to take effect.
+- **`expanse login`** - your password plus the 6-digit code. An agent cannot do
+  this and should never ask you for the code.
+- **`globus login`** and consent, if you need Globus - browser flows tied to your
+  identity.
+
+### If login fails with the right password
+
+Almost always the allocation has not finished propagating to Expanse. The
+symptom is exact: the `Password:` prompt repeats immediately and never reaches
+the 6-digit step. Wait rather than debugging - see `reference/troubleshooting.md`.
+
+
 Two separate things: giving *yourself* working access to Expanse, and telling
 *your agent* about this skill.
 

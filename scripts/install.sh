@@ -78,8 +78,7 @@ Done. Verify with:
     expanse --help
     scripts/selftest.sh
 
-Then set up your account and open a session:
+Then let the guided setup take you the rest of the way:
 
-    scripts/expanse-setup.sh
-    expanse login
+    scripts/onboard.sh
 EOF
