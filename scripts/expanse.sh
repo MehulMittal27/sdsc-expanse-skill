@@ -338,7 +338,18 @@ cmd_logs() {
   local rundir; rundir="$(remote_run_dir)"
   local f
   f=$(r "ls -1t '$rundir'/logs/*${jobid}* 2>/dev/null | head -1" || true)
-  [ -n "$f" ] || die "no log file for job $jobid under $rundir/logs (check the #SBATCH --output path)"
+  if [ -z "$f" ]; then
+    # A queued job has no output yet. Saying so beats blaming the output path.
+    local st
+    st=$(r "squeue -h -j '$jobid' -o '%T %R'" 2>/dev/null || true)
+    case "$st" in
+      PENDING*)  note "job $jobid has not started yet (${st#PENDING }); no output to show."
+                 note "watch it with: $(basename "${BASH_SOURCE[0]}" .sh) status $jobid"
+                 return 0 ;;
+      "")        die "job $jobid is not in the queue and wrote no log under $rundir/logs. Check the job id, or that it ran under this project ($EXPANSE_PROJECT)." ;;
+      *)         note "job $jobid is $st but has written no output yet."; return 0 ;;
+    esac
+  fi
   if [ "$follow" = "-f" ]; then
     r "tail -f '$f'"
   else
